@@ -1,0 +1,13 @@
+object FrmChat: TFrmChat
+  Left = 350
+  Height = 600
+  Top = 150
+  Width = 700
+  Caption = 'Lazarus Coding Agent'
+  ClientHeight = 600
+  ClientWidth = 700
+  OnCreate = FormCreate
+  OnDestroy = FormDestroy
+  Position = poScreenCenter
+  LCLVersion = '2.2.0.0'
+end
