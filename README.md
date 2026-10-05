@@ -25,6 +25,19 @@ Run the automated installation script from the project root:
 ```bash
 ./build.sh install
 ```
+
+On native Windows, use the batch equivalent from a Lazarus/Free Pascal command
+prompt:
+
+```bat
+build.bat install
+```
+
+`build.bat` uses the Lazarus installation already available through `PATH`, or
+the directory supplied in `LAZARUS_DIR`. Set `LCL_WS` only when a non-default
+LCL widgetset is required; native Windows builds default to `win32` for the
+test runners.
+
 This registers `package/lazaruscodingagent.lpk` and invokes `lazbuild` to recompile and restart the Lazarus IDE.
 
 ---
@@ -260,6 +273,26 @@ Custom file tools can call `NotifyToolFileChanged(Path)` after each successful c
 ./tests/run_ide_tests.sh   # Lazarus-interface adapter tests under Linux/Qt5 and Xvfb
 ./build.sh all
 ```
+
+On native Windows, the corresponding commands are:
+
+```bat
+tests\run_tests.bat
+tests\run_gui_tests.bat
+tests\run_ide_tests.bat
+build.bat all
+```
+
+Windows test runners require native Lazarus/Free Pascal, Python, `git`,
+`rg.exe`, and the TurboPowerIPro and Printer4Lazarus packages. GUI and IDE
+tests use the installed Windows widgetset and do not require Xvfb. Linux test
+runners remain Bash/Linux-specific.
+
+The checked-in `packagefiles.xml` is Lazarus IDE machine metadata and may
+contain absolute paths from the environment that created it. Portable builds
+use the relative `.lpk` and `.lpi` files instead of that metadata; regenerate
+`packagefiles.xml` locally when opening the package through a different
+Lazarus installation.
 
 Fixtures cover file confinement, aliases/modes, glob/search, exact replacements and unified diffs, per-file notification ordering and partial cancellation, process output limits and child cleanup, compiler/Git results, task state, SSE tool names, and both agent loops. Conversation fixtures also cover multiple user turns, multiple/interleaved tool calls,
 result linkage and idempotence, summary batching/rollback/retry, cancellation,

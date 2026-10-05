@@ -1,8 +1,9 @@
 program test_ide_reload;
 {$mode objfpc}{$H+}
-uses cthreads, Interfaces, Forms, Controls, Classes, SysUtils, Types, Dialogs, LCLType,
+uses {$IFDEF UNIX}cthreads, BaseUnix,{$ENDIF} {$IFDEF WINDOWS}Windows,{$ENDIF}
+  Interfaces, Forms, Controls, Classes, SysUtils, Types, Dialogs, LCLType,
   SrcEditorIntf, LazIDEIntf, ProjectIntf, LazMsgWorker, CodeToolManager,
-  uAgentPlugin, BaseUnix;
+  uAgentPlugin;
 type
   TTestEditor = class(TSourceEditorInterface)
   public
@@ -195,7 +196,13 @@ begin
     Before := IDE.Reloads; Save(Root + '/unopened.pas', 'new'); Refresh(Root + '/unopened.pas');
     Refresh(Outside.Path); Check((IDE.Reloads = Before) and Outside.Dirty, 'Unopened/external files reloaded');
     ForceDirectories(Root + '/../external');
+    {$IFDEF UNIX}
     Check(fpSymlink(PChar(Root + '/../external'), PChar(Root + '/linked')) = 0, 'Cannot prepare symlink fixture');
+    {$ELSE}
+    Check(CreateSymbolicLink(PChar(IncludeTrailingPathDelimiter(Root) + 'linked'),
+      PChar(ExpandFileName(IncludeTrailingPathDelimiter(Root) + '..' + DirectorySeparator + 'external')), 1) <> 0,
+      'Cannot prepare reparse-point fixture; enable Windows Developer Mode or run as administrator');
+    {$ENDIF}
     Linked := AddEditor(Root + '/linked/escaped.pas');
     Refresh(Linked.Path); Check((IDE.Reloads = Before) and Linked.Dirty, 'Parent symlink escaped project confinement');
     Save(UnitEditor.Path, 'again'); Refresh(UnitEditor.Path);

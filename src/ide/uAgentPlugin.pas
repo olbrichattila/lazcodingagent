@@ -351,6 +351,7 @@ begin
          DirectoryExists(ParentDir + DirectorySeparator + '.git') or
          FileExists(ParentDir + DirectorySeparator + 'README.md') or
          FileExists(ParentDir + DirectorySeparator + 'build.sh') or
+         FileExists(ParentDir + DirectorySeparator + 'build.bat') or
          FileExists(ParentDir + DirectorySeparator + 'Makefile') then
       begin
         Result := ParentDir;

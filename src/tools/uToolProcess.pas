@@ -7,9 +7,79 @@ implementation
 uses Math, Process, Pipes, sha1, uToolPaths, {$IFDEF UNIX}BaseUnix, Unix{$ELSE}Windows{$ENDIF};
 const OutputLimit = 1024*1024;
 type
+  {$IFDEF WINDOWS}
+  TWindowsJobObject = class
+  private
+    FHandle: THandle;
+  public
+    constructor Create(AProcessHandle: THandle);
+    destructor Destroy; override;
+  end;
+  {$ENDIF}
   TProcessGroup = class
     procedure AfterFork(Sender: TObject);
   end;
+
+{$IFDEF WINDOWS}
+const
+  JobObjectExtendedLimitInformation = 9;
+  JobObjectLimitKillOnJobClose = $00002000;
+type
+  TJobObjectBasicLimitInformation = record
+    PerProcessUserTimeLimit: Int64;
+    PerJobUserTimeLimit: Int64;
+    LimitFlags: DWORD;
+    MinimumWorkingSetSize: NativeUInt;
+    MaximumWorkingSetSize: NativeUInt;
+    ActiveProcessLimit: DWORD;
+    Affinity: NativeUInt;
+    PriorityClass: DWORD;
+    SchedulingClass: DWORD;
+  end;
+  TIoCounters = record
+    ReadOperationCount: Int64;
+    WriteOperationCount: Int64;
+    OtherOperationCount: Int64;
+    ReadTransferCount: Int64;
+    WriteTransferCount: Int64;
+    OtherTransferCount: Int64;
+  end;
+  TJobObjectExtendedLimitInformation = record
+    BasicLimitInformation: TJobObjectBasicLimitInformation;
+    IoInfo: TIoCounters;
+    ProcessMemoryLimit: NativeUInt;
+    JobMemoryLimit: NativeUInt;
+    PeakProcessMemoryUsed: NativeUInt;
+    PeakJobMemoryUsed: NativeUInt;
+  end;
+function WinCreateJobObject(lpJobAttributes: Pointer; lpName: PWideChar): THandle; stdcall; external 'kernel32.dll' name 'CreateJobObjectW';
+function WinSetInformationJobObject(hJob: THandle; JobObjectInfoClass: Integer; lpJobObjectInformation: Pointer; cbJobObjectInformationLength: DWORD): LongBool; stdcall; external 'kernel32.dll' name 'SetInformationJobObject';
+function WinAssignProcessToJobObject(hJob, hProcess: THandle): LongBool; stdcall; external 'kernel32.dll' name 'AssignProcessToJobObject';
+function WinCloseHandle(hObject: THandle): LongBool; stdcall; external 'kernel32.dll' name 'CloseHandle';
+
+constructor TWindowsJobObject.Create(AProcessHandle: THandle);
+var Info: TJobObjectExtendedLimitInformation;
+begin
+  inherited Create;
+  FHandle := WinCreateJobObject(nil, nil);
+  if FHandle = 0 then Exit;
+  FillChar(Info, SizeOf(Info), 0);
+  Info.BasicLimitInformation.LimitFlags := JobObjectLimitKillOnJobClose;
+  if not WinSetInformationJobObject(FHandle, JobObjectExtendedLimitInformation,
+    @Info, SizeOf(Info)) or not WinAssignProcessToJobObject(FHandle, AProcessHandle) then
+  begin
+    WinCloseHandle(FHandle);
+    FHandle := 0;
+  end;
+end;
+
+destructor TWindowsJobObject.Destroy;
+begin
+  if FHandle <> 0 then WinCloseHandle(FHandle);
+  inherited Destroy;
+end;
+{$ENDIF}
+
 procedure TProcessGroup.AfterFork(Sender: TObject);
 begin {$IFDEF UNIX}fpSetSid;{$ENDIF} end;
 
@@ -34,6 +104,7 @@ end;
 function RunToolProcess(const Executable: string; Args: TStrings; const Cwd: string; TimeoutMS: Integer; TrackChanges: Boolean): TJSONObject;
 var
   P: TProcess; Group: TProcessGroup;
+  {$IFDEF WINDOWS}Job: TWindowsJobObject;{$ENDIF}
   OutText, ErrText: RawByteString;
   CleanOut, CleanErr: string;
   OutTruncated, ErrTruncated, TimedOut, Cancelled, Stopped: Boolean;
@@ -132,6 +203,7 @@ begin
   BeforeFiles.NameValueSeparator := #0; AfterFiles.NameValueSeparator := #0;
   Root := CurrentToolContext.ProjectRoot; TrackingWarning := '';
   P := TProcess.Create(nil); Group := TProcessGroup.Create;
+  {$IFDEF WINDOWS}Job := nil;{$ENDIF}
   OutText := ''; ErrText := ''; OutTruncated := False; ErrTruncated := False;
   TimedOut := False; Cancelled := False; Stopped := False; StopAt := 0;
   try
@@ -140,6 +212,12 @@ begin
     P.Options := [poUsePipes, poNoConsole, poNewProcessGroup];
     {$IFDEF UNIX}P.OnForkEvent := @Group.AfterFork;{$ENDIF}
     P.Execute; P.CloseInput;
+    {$IFDEF WINDOWS}
+    { A job object gives normal completion the same descendant cleanup guarantee
+      that the Unix process-group kill below provides. Closing it kills any
+      detached descendants that remain after the direct process exits. }
+    Job := TWindowsJobObject.Create(P.ProcessHandle);
+    {$ENDIF}
     Started := GetTickCount64;
     repeat
       Drain(P.Output, OutText, OutTruncated); Drain(P.Stderr, ErrText, ErrTruncated);
@@ -163,6 +241,7 @@ begin
     if TrackChanges then AddChanges;
   finally
     if P.Running then StopTree(P);
+    {$IFDEF WINDOWS}Job.Free;{$ENDIF}
     P.Free; Group.Free; BeforeFiles.Free; AfterFiles.Free;
   end;
 end;

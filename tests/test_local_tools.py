@@ -7,6 +7,8 @@ import sys
 import tempfile
 import time
 
+IS_WINDOWS = os.name == 'nt'
+
 
 def run(driver):
     count = 0
@@ -63,28 +65,40 @@ def run(driver):
             error('read_file', {'path':'binary'})
             (root/'invalid-encoding').write_bytes(b'\xff')
             error('read_file', {'path':'invalid-encoding'})
-            os.mkfifo(root/'pipe')
-            error('read_file', {'path':'pipe'})
-            error('write_file', {'path':'pipe','content':'x'})
-            (root/'pipe').unlink()
+            if not IS_WINDOWS:
+                os.mkfifo(root/'pipe')
+                error('read_file', {'path':'pipe'})
+                error('write_file', {'path':'pipe','content':'x'})
+                (root/'pipe').unlink()
             for path in ('../escape.txt',str(Path(temporary)/'escape.txt')):
                 error('write_file', {'path':path,'content':'x'})
             outside = Path(temporary)/'outside'; outside.mkdir()
-            (root/'link').symlink_to(outside, target_is_directory=True)
-            error('write_file', {'path':'link/new','content':'x'})
-            error('list_files', {'path':'link'})
-            (root/'.plan').symlink_to(outside, target_is_directory=True)
-            error('create_plan_file', {'content':'# Plan'}, mode='Plan')
-            (root/'.plan').unlink()
+            can_symlink = True
+            try:
+                (root/'link').symlink_to(outside, target_is_directory=True)
+            except (OSError, NotImplementedError):
+                can_symlink = False
+            else:
+                error('write_file', {'path':'link/new','content':'x'})
+                error('list_files', {'path':'link'})
+            if can_symlink:
+                try:
+                    (root/'.plan').symlink_to(outside, target_is_directory=True)
+                except (OSError, NotImplementedError):
+                    can_symlink = False
+                else:
+                    error('create_plan_file', {'content':'# Plan'}, mode='Plan')
+                    (root/'.plan').unlink()
             assert not list(outside.iterdir())
-            (root/'.plan').symlink_to(root/'src', target_is_directory=True)
-            error('create_plan_file', {'content':'# Plan'}, mode='Plan')
-            assert not list((root/'src').glob('plan-*.md'))
-            (root/'.plan').unlink()
-            (root/'.plan').symlink_to(root/'missing-plans', target_is_directory=True)
-            error('create_plan_file', {'content':'# Plan'}, mode='Plan')
-            assert not (root/'missing-plans').exists()
-            (root/'.plan').unlink()
+            if can_symlink:
+                (root/'.plan').symlink_to(root/'src', target_is_directory=True)
+                error('create_plan_file', {'content':'# Plan'}, mode='Plan')
+                assert not list((root/'src').glob('plan-*.md'))
+                (root/'.plan').unlink()
+                (root/'.plan').symlink_to(root/'missing-plans', target_is_directory=True)
+                error('create_plan_file', {'content':'# Plan'}, mode='Plan')
+                assert not (root/'missing-plans').exists()
+                (root/'.plan').unlink()
             plan = ok('create_plan_file', {'content':'# Plan'}, mode='Plan')
             assert Path(plan['path']).read_text() == '# Plan'
             assert Path(plan['path']).parent == root/'.plan'
@@ -97,9 +111,10 @@ def run(driver):
             for path in ('outside-plan.md', '.plan/custom.md', '.plan/custom.pas'):
                 error('write_file', {'path':path,'content':'denied'}, mode='Plan')
                 assert not (root/path).exists()
-            (root/'inside').symlink_to(root/'src', target_is_directory=True)
-            assert ok('read_file', {'path':'inside/main.pas'})['total_lines'] == 2
-            (root/'link').unlink()
+            if can_symlink:
+                (root/'inside').symlink_to(root/'src', target_is_directory=True)
+                assert ok('read_file', {'path':'inside/main.pas'})['total_lines'] == 2
+                (root/'link').unlink()
             entries = ok('list_directory')['entries']
             assert any(e['path']=='src' and e['type']=='directory' for e in entries)
             assert [e['path'] for e in entries] == sorted(e['path'] for e in entries)
@@ -148,31 +163,49 @@ def run(driver):
             (root/'pre-existing').write_text('already changed')
             (root/'remove-me').write_text('old')
             (root/'modify-me').write_text('old')
-            result = ok('shell', {'command': "printf new > modify-me; rm remove-me; printf config > .config; mkdir -p .plan bin; touch .plan/ignored bin/ignored; printf created > created"})
+            if IS_WINDOWS:
+                setup_command = 'echo new>modify-me & del /q remove-me & echo config>.config & mkdir .plan bin & type nul > .plan\\ignored & type nul > bin\\ignored & echo created>created'
+                true_command = 'ver > nul'
+                terminal_command = 'echo out & echo err 1>&2 & exit /b 7'
+                output_command = 'python -c "import os; os.write(1,b\'x\'*1100000); os.write(2,b\'y\'*1100000)"'
+                invalid_output_command = 'python -c "import os; os.write(1,bytes([255,195]))"'
+                timeout_command = 'ping 127.0.0.1 -n 11 > nul'
+                before_cancel_command = 'type nul > before-cancel & ' + timeout_command
+            else:
+                setup_command = "printf new > modify-me; rm remove-me; printf config > .config; mkdir -p .plan bin; touch .plan/ignored bin/ignored; printf created > created"
+                true_command = 'true'
+                terminal_command = 'printf out; printf err >&2; exit 7'
+                output_command = 'python3 -c "import os; os.write(1,b\'x\'*1100000); os.write(2,b\'y\'*1100000)"'
+                invalid_output_command = "python3 -c \"import os; os.write(1,bytes([255,195]))\""
+                timeout_command = 'sleep 10 & echo $! > child.pid; wait'
+                before_cancel_command = 'touch before-cancel; sleep 10'
+            result = ok('shell', {'command': setup_command})
             assert set(result['changed_paths']) == {str(root/p) for p in ('modify-me','remove-me','.config','created')}, result
-            result = ok('shell', {'command':'true'})
+            result = ok('shell', {'command':true_command})
             assert result['changed_paths']==[], result
             # Unsupported entries cause an explicit warning without losing command results.
-            os.mkfifo(root/'tracking-pipe')
-            result = ok('shell', {'command':'printf still-runs'})
-            assert result['stdout']=='still-runs' and 'incomplete' in result['tracking_warning']
-            (root/'tracking-pipe').unlink()
-            assert ok('terminal',{'command':'printf out; printf err >&2; exit 7'})['exit_code']==7
-            result = ok('shell',{'command':'python3 -c "import os; os.write(1,b\'x\'*1100000); os.write(2,b\'y\'*1100000)"'})
+            if not IS_WINDOWS:
+                os.mkfifo(root/'tracking-pipe')
+                result = ok('shell', {'command':'printf still-runs'})
+                assert result['stdout']=='still-runs' and 'incomplete' in result['tracking_warning']
+                (root/'tracking-pipe').unlink()
+            assert ok('terminal',{'command':terminal_command})['exit_code']==7
+            result = ok('shell',{'command':output_command})
             assert len(result['stdout'])==1024*1024 and len(result['stderr'])==1024*1024
             assert result['stdout_truncated'] and result['stderr_truncated']
-            result = ok('shell', {'command':"python3 -c \"import os; os.write(1,bytes([255,195]))\""})
+            result = ok('shell', {'command':invalid_output_command})
             assert result['stdout'] == '\ufffd\ufffd'
             started=time.monotonic()
-            result = ok('shell',{'command':'sleep 10 & echo $! > child.pid; wait','timeout_ms':100})
+            result = ok('shell',{'command':timeout_command,'timeout_ms':100})
             assert result['timed_out'] and time.monotonic()-started < 3
-            child=int((root/'child.pid').read_text())
-            time.sleep(.05)
-            stat=Path(f'/proc/{child}/stat')
-            assert not stat.exists() or stat.read_text().split()[2]=='Z', 'child still running'
-            result = ok('shell',{'command':'sleep 10'}, cancel_after_ms=100)
+            if not IS_WINDOWS:
+                child=int((root/'child.pid').read_text())
+                time.sleep(.05)
+                stat=Path(f'/proc/{child}/stat')
+                assert not stat.exists() or stat.read_text().split()[2]=='Z', 'child still running'
+            result = ok('shell',{'command':timeout_command}, cancel_after_ms=100)
             assert result['cancelled']
-            result = ok('shell',{'command':'touch before-cancel; sleep 10'}, cancel_after_ms=100)
+            result = ok('shell',{'command':before_cancel_command}, cancel_after_ms=100)
             assert result['cancelled'] and str(root/'before-cancel') in result['changed_paths']
             error('shell',{'command':'true','timeout_ms':600001})
             error('git',{'operation':'status'})
