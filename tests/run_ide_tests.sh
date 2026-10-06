@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
-TEST_OUTPUT="$(mktemp -d /tmp/coding-agent-ide-XXXXXX)"
+source tests/lazarus_test_env.sh
+TEST_OUTPUT="$(mktemp -d "${TMPDIR:-/tmp}/coding-agent-ide-XXXXXX")"
 trap 'rm -rf "$TEST_OUTPUT"' EXIT
 cat > "$TEST_OUTPUT/ide_reload.lpi" <<XML
 <CONFIG>
@@ -23,6 +24,10 @@ cat > "$TEST_OUTPUT/ide_reload.lpi" <<XML
   </CompilerOptions>
 </CONFIG>
 XML
-lazbuild --ws=qt5 "$TEST_OUTPUT/ide_reload.lpi" >"$TEST_OUTPUT/build.log" 2>&1 || { rg "Error:|Fatal:" "$TEST_OUTPUT/build.log"; exit 1; }
+lazbuild --lazarusdir="$LAZARUS_DIR" --ws="$LCL_WS" "$TEST_OUTPUT/ide_reload.lpi" >"$TEST_OUTPUT/build.log" 2>&1 || { rg "Error:|Fatal:" "$TEST_OUTPUT/build.log"; exit 1; }
 mkdir "$TEST_OUTPUT/project"
-QT_QPA_PLATFORM=xcb xvfb-run -a "$TEST_OUTPUT/ide_reload" "$TEST_OUTPUT/project"
+if [ "$TEST_HOST_OS" = "Darwin" ]; then
+  "$TEST_OUTPUT/ide_reload" "$TEST_OUTPUT/project"
+else
+  QT_QPA_PLATFORM=xcb xvfb-run -a "$TEST_OUTPUT/ide_reload" "$TEST_OUTPUT/project"
+fi

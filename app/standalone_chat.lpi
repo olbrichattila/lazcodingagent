@@ -31,7 +31,7 @@
         <PackageName Value="TurboPowerIPro"/>
       </Item2>
     </RequiredPackages>
-    <Units Count="22">
+    <Units Count="23">
       <Unit0>
         <Filename Value="standalone_chat.lpr"/>
         <IsPartOfProject Value="True"/>
@@ -61,6 +61,10 @@
         <Filename Value="../src/core/uAgentTypes.pas"/>
         <IsPartOfProject Value="True"/>
       </Unit4>
+      <Unit22>
+        <Filename Value="../src/core/uAgentRules.pas"/>
+        <IsPartOfProject Value="True"/>
+      </Unit22>
       <Unit5>
         <Filename Value="../src/core/uAgentConfig.pas"/>
         <IsPartOfProject Value="True"/>

@@ -38,6 +38,21 @@ the directory supplied in `LAZARUS_DIR`. Set `LCL_WS` only when a non-default
 LCL widgetset is required; native Windows builds default to `win32` for the
 test runners.
 
+On macOS, install native Free Pascal and Lazarus builds for your Mac
+architecture, along with Xcode Command Line Tools. Install the Lazarus
+`TurboPowerIPro` and `Printer4Lazarus` packages. The build scripts select the
+Cocoa widgetset by default; set `LCL_WS` if your Lazarus installation uses a
+different widgetset. If automatic Lazarus discovery does not find the source
+directory, set `LAZARUS_DIR` to the directory containing `components/lazutils`.
+Then build both targets with:
+
+```bash
+./build.sh all
+```
+
+Build separately on Apple Silicon and Intel to produce binaries for each
+architecture. This project does not create a signed or notarized app bundle.
+
 This registers `package/lazaruscodingagent.lpk` and invokes `lazbuild` to recompile and restart the Lazarus IDE.
 
 ---
@@ -108,8 +123,19 @@ package or standalone application.
 ## Configuration & Usage
 
 The chat uses Windows WinHTTP (with the Windows Schannel TLS implementation) on
-Windows, so the Lazarus plugin does not require separate OpenSSL DLLs. Linux
-continues to use Free Pascal's `fphttpclient` and OpenSSL sockets support.
+Windows. Linux and macOS use Free Pascal's `fphttpclient` and `opensslsockets`.
+For HTTPS providers on macOS, install an OpenSSL runtime compatible with your
+Free Pascal build and make its libraries discoverable to the app. With
+Homebrew OpenSSL 3, for example:
+
+```bash
+brew install openssl@3
+OPENSSL_PREFIX="$(brew --prefix openssl@3)"
+export PATH="$OPENSSL_PREFIX/bin:$PATH"
+export DYLD_LIBRARY_PATH="$OPENSSL_PREFIX/lib${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+```
+
+HTTP-only endpoints, including the local test fixtures, do not exercise TLS.
 
 1. **Configure LLM & Models in Settings (⚙)**:
    - Click the gear icon (**⚙**) in the chat toolbar to open the tabbed Settings dialog:
@@ -273,8 +299,8 @@ Custom file tools can call `NotifyToolFileChanged(Path)` after each successful c
 
 ```bash
 ./tests/run_tests.sh
-./tests/run_gui_tests.sh   # Linux/Qt5, requires Xvfb and installed Lazarus packages
-./tests/run_ide_tests.sh   # Lazarus-interface adapter tests under Linux/Qt5 and Xvfb
+./tests/run_gui_tests.sh   # Native widgetset; Linux uses Qt5/Xvfb
+./tests/run_ide_tests.sh   # Native widgetset; Linux uses Qt5/Xvfb
 ./build.sh all
 ```
 
@@ -292,8 +318,32 @@ Windows test runners require native Lazarus/Free Pascal, Python, `git`,
 `rg.exe`, and the TurboPowerIPro and Printer4Lazarus packages. Keep `fpc.exe`
 and `lazbuild.exe` on `PATH`; set `LAZARUS_DIR` if the scripts cannot find the
 Lazarus installation in the usual locations. GUI and IDE tests default to the
-`win32` widgetset (override with `LCL_WS`) and do not require Xvfb. Linux test
-runners remain Bash/Linux-specific.
+`win32` widgetset (override with `LCL_WS`) and do not require Xvfb. The Bash
+runners support Linux and macOS; use the batch runners on Windows.
+
+### macOS
+
+The Bash build and test runners select Cocoa on macOS by default. Set
+`LAZARUS_DIR` when Lazarus is installed outside the common paths, or set
+`LCL_WS` when using a different installed widgetset. Run the full native suite
+from a graphical macOS session:
+
+```bash
+./build.sh all
+./tests/run_tests.sh
+./tests/run_gui_tests.sh
+./tests/run_ide_tests.sh
+```
+
+The macOS runners require Free Pascal, Lazarus with Cocoa LCL units, Python 3,
+`git`, `rg`, the OpenSSL 3 libraries and command-line tool, `TurboPowerIPro`,
+and `Printer4Lazarus`. The GUI tests run directly on macOS and do not use Xvfb
+or Qt's XCB backend. The core test runner also makes a local trusted HTTPS/SSE
+request on macOS to verify that the OpenSSL runtime is loadable.
+
+GitHub Actions builds and tests native arm64 and x86_64 targets. Install the
+architecture-appropriate toolchain from the
+[official Lazarus downloads](https://www.lazarus-ide.org/index.php?page=downloads).
 
 The checked-in `packagefiles.xml` is Lazarus IDE machine metadata and may
 contain absolute paths from the environment that created it. Portable builds

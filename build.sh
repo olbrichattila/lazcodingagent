@@ -13,7 +13,14 @@ BIN_DIR="${APP_DIR}/bin"
 # Detect Lazarus directory
 LAZARUS_DIR="${LAZARUS_DIR:-}"
 if [ -z "${LAZARUS_DIR}" ]; then
-    if [ -d "/usr/lib/lazarus/4.4" ]; then
+    if [ "$(uname -s)" = "Darwin" ]; then
+        for candidate in /Applications/Lazarus.app/Contents/Resources /usr/local/share/lazarus /opt/homebrew/share/lazarus; do
+            if [ -d "${candidate}" ]; then
+                LAZARUS_DIR="${candidate}"
+                break
+            fi
+        done
+    elif [ -d "/usr/lib/lazarus/4.4" ]; then
         LAZARUS_DIR="/usr/lib/lazarus/4.4"
     elif [ -d "/usr/lib/lazarus/default" ]; then
         LAZARUS_DIR="/usr/lib/lazarus/default"
@@ -23,11 +30,13 @@ fi
 # Detect LCL Widgetset
 LCL_WS="${LCL_WS:-}"
 if [ -z "${LCL_WS}" ]; then
-    if dpkg -l 2>/dev/null | grep -q "lazarus-ide-qt5"; then
+    if [ "$(uname -s)" = "Darwin" ]; then
+        LCL_WS="cocoa"
+    elif command -v dpkg >/dev/null 2>&1 && dpkg -l 2>/dev/null | grep -q "lazarus-ide-qt5"; then
         LCL_WS="qt5"
-    elif dpkg -l 2>/dev/null | grep -q "libgtk2.0-dev"; then
+    elif command -v dpkg >/dev/null 2>&1 && dpkg -l 2>/dev/null | grep -q "libgtk2.0-dev"; then
         LCL_WS="gtk2"
-    elif dpkg -l 2>/dev/null | grep -q "libqt5pas-dev"; then
+    elif command -v dpkg >/dev/null 2>&1 && dpkg -l 2>/dev/null | grep -q "libqt5pas-dev"; then
         LCL_WS="qt5"
     else
         LCL_WS="qt5"

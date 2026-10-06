@@ -19,9 +19,17 @@ type
   public
     constructor Create(AOwner: TComponent); override;
     procedure SetMarkdown(const AMarkdown: string);
+    procedure ScrollToBottom;
   end;
 
 implementation
+
+type
+  { Exposes the visual panel created internally by TIpHtmlPanel. }
+  TIpHtmlFrameAccess = class(TIpHtmlFrame)
+  public
+    function GetScrollPanel: TIpHtmlInternalPanel;
+  end;
 
 constructor TMarkdownView.Create(AOwner: TComponent);
 begin
@@ -33,6 +41,11 @@ begin
   MarginWidth := 10;
   MarginHeight := 8;
   OnHotClick := @HandleHotClick;
+end;
+
+function TIpHtmlFrameAccess.GetScrollPanel: TIpHtmlInternalPanel;
+begin
+  Result := HyperPanel;
 end;
 
 class function TMarkdownView.EscapeHTML(const S: string): string;
@@ -273,6 +286,20 @@ end;
 procedure TMarkdownView.SetMarkdown(const AMarkdown: string);
 begin
   SetHtmlFromStr(RenderHTML(AMarkdown));
+end;
+
+procedure TMarkdownView.ScrollToBottom;
+var
+  ScrollPanel: TIpHtmlInternalPanel;
+begin
+  if MasterFrame = nil then Exit;
+  ScrollPanel := TIpHtmlFrameAccess(MasterFrame).GetScrollPanel;
+  if ScrollPanel = nil then Exit;
+
+  { TIpHtmlPanel renders and calculates its scroll range in this separate,
+    visible child. Repaint it before setting the position to the range limit. }
+  ScrollPanel.Repaint;
+  ScrollPanel.VScroll.Position := High(Integer);
 end;
 
 end.

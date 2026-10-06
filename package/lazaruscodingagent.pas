@@ -8,11 +8,11 @@ unit lazaruscodingagent;
 interface
 
 uses
-  uAgentTypes, uAgentConfig, uAgentHistory, uAgentCore, uAgentThread, 
-  uLLMClient, uWindowsHTTP, uToolBase, uToolFileOps, uFrmSettings, 
-  uFrmModelPicker, uFrmChat, uFrmChatSession, uFrmPlanResult, uMarkdownView, 
-  uAgentPlugin, uToolPaths, uToolProcess, uToolPatch, uToolLocal, uLLMAdapter, 
-  uAgentContext, LazarusPackageIntf;
+  uAgentTypes, uAgentRules, uAgentConfig, uAgentHistory, uAgentCore, 
+  uAgentThread, uLLMClient, uWindowsHTTP, uToolBase, uToolFileOps, 
+  uFrmSettings, uFrmModelPicker, uFrmChat, uFrmChatSession, uFrmPlanResult, 
+  uMarkdownView, uAgentPlugin, uToolPaths, uToolProcess, uToolPatch, 
+  uToolLocal, uLLMAdapter, uAgentContext, LazarusPackageIntf;
 
 implementation
 

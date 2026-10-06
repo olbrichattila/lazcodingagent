@@ -274,6 +274,7 @@ var
 begin
   SettingsForm := TFrmSettings.Create(Self);
   try
+    SettingsForm.ProjectRoot := GetEffectiveProjectDir;
     if SettingsForm.ShowModal = mrOk then
     begin
       FAgent.Config.Load;
@@ -752,14 +753,9 @@ begin
 end;
 
 procedure TFrmChatSession.ScrollChatToBottom(Data: PtrInt);
-var
-  ContentSize: TSize;
 begin
   if Assigned(FChatView) then
-  begin
-    ContentSize := FChatView.GetContentSize;
-    FChatView.VScrollPos := ContentSize.cy;
-  end;
+    FChatView.ScrollToBottom;
 end;
 
 procedure TFrmChatSession.AppendAssistantMessage(const AAnswer, AThinking: string);

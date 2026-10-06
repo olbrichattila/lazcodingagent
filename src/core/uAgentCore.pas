@@ -115,17 +115,17 @@ begin
       begin AResponse := 'Context remains blocked. Increase the input budget or clear chat.'; Exit; end;
       { Changing settings must actually make the existing context usable before admitting another prompt. }
       if not FCompactor.Prepare(FHistory, FLLMClient, FConfig, AContext.Mode,
-        FEstimator, AContext.IsCancelled, AProgress, AResponse) then Exit;
+        FEstimator, AContext.IsCancelled, AProgress, AResponse, AContext.ProjectRoot) then Exit;
       if Cancelled then begin AResponse := 'Request cancelled by user.'; Exit; end;
       FHistory.AddMessage(mrUser, APrompt);
       for Iter := 1 to 50 do
       begin
         if Cancelled then begin AResponse := 'Request cancelled by user.'; Exit; end;
         if not FCompactor.Prepare(FHistory, FLLMClient, FConfig, AContext.Mode,
-          FEstimator, AContext.IsCancelled, AProgress, AResponse) then Exit;
+          FEstimator, AContext.IsCancelled, AProgress, AResponse, AContext.ProjectRoot) then Exit;
         if Assigned(AProgress) then AProgress('Thinking...');
         if not FLLMClient.SendResponse(FHistory, AContext.Mode, AStreaming, True,
-          AOnChunk, Response, AResponse) then Exit;
+          AOnChunk, Response, AResponse, AContext.ProjectRoot) then Exit;
         try
           if Cancelled then begin AResponse := 'Request cancelled by user.'; Exit; end;
           AResponse := Response.Content;

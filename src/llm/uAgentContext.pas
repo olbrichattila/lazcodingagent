@@ -16,13 +16,15 @@ type
   public
     function Prepare(AHistory: TAgentHistory; AClient: TLLMClient; AConfig: TAgentConfig;
       AMode: TAgentMode; AEstimator: TContextEstimator; ACancelled: TToolCancelled;
-      AProgress: TContextProgress; out AError: string): Boolean; virtual; abstract;
+      AProgress: TContextProgress; out AError: string;
+      const AProjectRoot: string = ''): Boolean; virtual; abstract;
   end;
   TEngineeringCompactor = class(TConversationCompactor)
   public
     function Prepare(AHistory: TAgentHistory; AClient: TLLMClient; AConfig: TAgentConfig;
       AMode: TAgentMode; AEstimator: TContextEstimator; ACancelled: TToolCancelled;
-      AProgress: TContextProgress; out AError: string): Boolean; override;
+      AProgress: TContextProgress; out AError: string;
+      const AProjectRoot: string = ''): Boolean; override;
   end;
 implementation
 type EContextSize = class(Exception);
@@ -41,7 +43,7 @@ end;
 
 function TEngineeringCompactor.Prepare(AHistory: TAgentHistory; AClient: TLLMClient; AConfig: TAgentConfig;
   AMode: TAgentMode; AEstimator: TContextEstimator; ACancelled: TToolCancelled;
-  AProgress: TContextProgress; out AError: string): Boolean;
+  AProgress: TContextProgress; out AError: string; const AProjectRoot: string): Boolean;
 var Prefix, I, J, BatchEnd, EndTurn: Integer; InputSize: Int64;
   Tools, SystemText, Summary, Transcript, Candidate: string;
   View, Batch: TAgentHistory; Messages: TJSONArray; Response: TChatMessage;
@@ -64,7 +66,7 @@ begin
   Result := False; AError := ''; Tools := '';
   Messages := GetToolRegistry.GetToolsDeclarationJSONArray(AMode);
   try Tools := Messages.AsJSON; finally Messages.Free; end;
-  SystemText := AClient.BuildSystemPrompt(AMode);
+  SystemText := AClient.BuildSystemPrompt(AMode, AProjectRoot);
   InputSize := Size(AHistory);
   AHistory.EstimatedInputTokens := InputSize;
   if InputSize <= (Int64(AConfig.ContextBudget) * 80 div 100) then begin AHistory.Unblock; Exit(True); end;

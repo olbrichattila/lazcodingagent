@@ -3,6 +3,7 @@ import http.server
 import json
 import os
 from pathlib import Path
+import ssl
 import subprocess
 import sys
 import tempfile
@@ -28,6 +29,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 content=json.dumps({'name':'plan','arguments':{'action':'replace','items':[{'id':'one','text':'Verify','status':'pending'}]}})
         elif scenario=='edit':
             if not tool_messages: tool=('edit_file',{'path':'unit.pas','old_text':'old','new_text':'new'})
+        elif scenario=='tls_smoke':
+            content='TLS transport verified'
         elif scenario=='exhaust': tool=('todo',{'action':'read'})
         elif scenario=='gui_patch':
             if not tool_messages: tool=('apply_patch',{'patch':'--- a/unit.pas\n+++ b/unit.pas\n@@ -1 +1 @@\n-old\n+new\n'})
@@ -88,6 +91,9 @@ def run(driver):
     try:
         with tempfile.TemporaryDirectory(prefix='coding-agent-loop-') as temporary:
             root=Path(temporary)/'project'; root.mkdir()
+            rules=root/'.rules'; rules.mkdir()
+            (rules/'b.md').write_text('Second project rule.')
+            (rules/'a.md').write_text('First project rule.')
             env={**os.environ,'XDG_CONFIG_HOME':str(Path(temporary)/'config')}
             for method in ('sync','thread'):
                 for mode,scenario in [('Ask','readonly'),('Plan','readonly'),('Ask','diagnostic_denied'),('Plan','fallback'),('Agent','edit'),('Agent','exhaust')]:
@@ -104,6 +110,8 @@ def run(driver):
                     for request in requests:
                         prompt = request['messages'][0]['content'].replace('\r\n', '\n')
                         assert f'Active Mode: {mode}\n' in prompt
+                        assert prompt.index('First project rule.') < prompt.index('Second project rule.')
+                        assert 'Project Rules (from .rules/*.md):' in prompt
                         functions = {t['function']['name']: t['function'] for t in request['tools']}
                         guidance = {}
                         for line in prompt.splitlines():
@@ -138,5 +146,38 @@ def run(driver):
             print(f'Agent loop tests passed ({scenarios} synchronous/worker scenarios).')
     finally:
         server.shutdown(); server.server_close(); worker.join()
+
+    if os.environ.get('RUN_TLS_SMOKE') == '1':
+        run_tls_smoke(driver)
+
+def run_tls_smoke(driver):
+    with tempfile.TemporaryDirectory(prefix='coding-agent-tls-') as temporary:
+        cert=Path(temporary)/'localhost.crt'
+        key=Path(temporary)/'localhost.key'
+        subprocess.run([
+            'openssl','req','-x509','-newkey','rsa:2048','-nodes','-days','1',
+            '-keyout',str(key),'-out',str(cert),'-subj','/CN=127.0.0.1',
+            '-addext','subjectAltName=IP:127.0.0.1'
+        ],check=True,capture_output=True,text=True)
+        server=http.server.ThreadingHTTPServer(('127.0.0.1',0), Handler)
+        context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(certfile=cert,keyfile=key)
+        server.socket=context.wrap_socket(server.socket,server_side=True)
+        worker=threading.Thread(target=server.serve_forever,daemon=True)
+        worker.start()
+        try:
+            root=Path(temporary)/'project'; root.mkdir()
+            endpoint=f'https://127.0.0.1:{server.server_port}/v1/chat/completions'
+            env={**os.environ,'SSL_CERT_FILE':str(cert),'SSL_CERT_DIR':temporary}
+            result=subprocess.run(
+                [driver,str(root),endpoint,'Ask','thread','tls_smoke'],
+                env=env,text=True,encoding='utf-8',capture_output=True,timeout=30)
+            assert result.returncode==0, result.stderr
+            response=json.loads(result.stdout)
+            assert response['success'] and response['response']=='TLS transport verified', response
+            assert Handler.requests[-1].get('stream') is True, Handler.requests[-1]
+            print('HTTPS/SSE transport smoke test passed.')
+        finally:
+            server.shutdown(); server.server_close(); worker.join()
 
 if __name__=='__main__': run(sys.argv[1])

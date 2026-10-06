@@ -8,7 +8,7 @@ uses
   Classes, SysUtils,
   {$IFNDEF MSWINDOWS}fphttpclient, opensslsockets,{$ENDIF}
   fpjson, jsonparser,
-  uAgentTypes, uAgentHistory, uAgentConfig, uToolBase, uLLMAdapter
+  uAgentTypes, uAgentHistory, uAgentConfig, uToolBase, uLLMAdapter, uAgentRules
   {$IFDEF MSWINDOWS}, uWindowsHTTP{$ENDIF};
 
 type
@@ -60,10 +60,11 @@ type
   public
     constructor Create(AConfig: TAgentConfig; AAdapter: TLLMAdapter = nil);
     destructor Destroy; override;
-    function BuildSystemPrompt(AMode: TAgentMode): string;
+    function BuildSystemPrompt(AMode: TAgentMode; const AProjectRoot: string = ''): string;
     function SendResponse(AHistory: TAgentHistory; AMode: TAgentMode;
       AStream, AEnableTools: Boolean; AOnChunk: TSSEChunkEvent;
-      out AMessage: TChatMessage; out AError: string): Boolean;
+      out AMessage: TChatMessage; out AError: string;
+      const AProjectRoot: string = ''): Boolean;
     { Takes ownership of AMessages. No conversation mutations. }
     function RequestResponse(AMessages: TJSONArray; AStream, AEnableTools: Boolean;
       AMode: TAgentMode; AOnChunk: TSSEChunkEvent; AMaxTokens: Integer;
@@ -331,14 +332,16 @@ begin
   if FAdapter = nil then FAdapter := TChatCompletionsAdapter.Create;
 end;
 
-function TLLMClient.BuildSystemPrompt(AMode: TAgentMode): string;
+function TLLMClient.BuildSystemPrompt(AMode: TAgentMode; const AProjectRoot: string): string;
 var
-  ToolsInfo: string;
+  ToolsInfo, RulesText: string;
   WorkingDir: string;
 begin
-  WorkingDir := GetEffectiveProjectDir;
+  WorkingDir := AProjectRoot;
+  if WorkingDir = '' then WorkingDir := GetEffectiveProjectDir;
 
   ToolsInfo := GetToolRegistry.ToolGuidance(AMode);
+  RulesText := TAgentRules.ReadAll(WorkingDir);
 
   case AMode of
     amPlan:
@@ -379,6 +382,9 @@ begin
         '- This is Ask mode: use inspection tools, cached diagnostics, and task tracking. Do not write or create files, call write tools, or propose file-write actions.' + LineEnding +
         '- Answer questions directly and accurately using what you learned from the project.';
   end;
+  if RulesText <> '' then
+    Result := Result + LineEnding + LineEnding + 'Project Rules (from .rules/*.md):' +
+      LineEnding + RulesText;
 end;
 
 function TLLMClient.ExtractErrorMessage(AResponseData: string; AStatusCode: Integer): string;
@@ -454,14 +460,14 @@ end;
 
 function TLLMClient.SendResponse(AHistory: TAgentHistory; AMode: TAgentMode;
   AStream, AEnableTools: Boolean; AOnChunk: TSSEChunkEvent;
-  out AMessage: TChatMessage; out AError: string): Boolean;
+  out AMessage: TChatMessage; out AError: string; const AProjectRoot: string): Boolean;
 var Snapshot: TAgentHistory;
 begin
   Result := False; AMessage := nil; AError := ''; Snapshot := nil;
   try
     try
       Snapshot := AHistory.Clone;
-      Result := RequestResponse(FAdapter.Messages(Snapshot, BuildSystemPrompt(AMode)),
+      Result := RequestResponse(FAdapter.Messages(Snapshot, BuildSystemPrompt(AMode, AProjectRoot)),
         AStream, AEnableTools, AMode, AOnChunk, 0, AMessage, AError);
     except on E: Exception do AError := 'LLM context error: ' + E.Message; end;
   finally Snapshot.Free; end;

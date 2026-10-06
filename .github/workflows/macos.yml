@@ -1,0 +1,90 @@
+name: macOS
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  macos-build-and-test:
+    name: macOS ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-15
+            lazarus_arch: aarch64
+            fpc_arch: aarch64
+            lazarus_folder: aarch64
+          - arch: x86_64
+            runner: macos-15-intel
+            lazarus_arch: x86_64
+            fpc_arch: x86_64
+            lazarus_folder: x86-64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Free Pascal and Lazarus
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install openssl@3 ripgrep
+          version=4.4
+          base="https://download.lazarus-ide.org/Lazarus%20macOS%20${{ matrix.lazarus_folder }}/Lazarus%20${version}"
+          dist="$RUNNER_TEMP/lazarus-dist"
+          mkdir -p "$dist" "$RUNNER_TEMP/fpc-dmg"
+
+          curl --fail --location --retry 3 "$base/lazarus-darwin-${{ matrix.lazarus_arch }}-${version}.zip" -o "$RUNNER_TEMP/lazarus.zip"
+          xattr -cr "$RUNNER_TEMP/lazarus.zip"
+          unzip -q "$RUNNER_TEMP/lazarus.zip" -d "$dist"
+
+          curl --fail --location --retry 3 "https://download.lazarus-ide.org/Lazarus%20macOS%20aarch64/Lazarus%20${version}/fpc-3.2.2.intelarm64-macosx.dmg" -o "$RUNNER_TEMP/fpc.dmg"
+          hdiutil attach "$RUNNER_TEMP/fpc.dmg" -nobrowse -quiet -mountpoint "$RUNNER_TEMP/fpc-dmg"
+          fpc_pkg="$(find "$RUNNER_TEMP/fpc-dmg" -maxdepth 3 -name 'fpc-*.pkg' -print -quit)"
+          if [ -z "$fpc_pkg" ]; then
+            echo "Could not find the Free Pascal installer in the downloaded disk image." >&2
+            exit 1
+          fi
+          sudo installer -pkg "$fpc_pkg" -target /
+          hdiutil detach "$RUNNER_TEMP/fpc-dmg" -quiet
+
+          lazarus_dir="$(find "$dist" -type d -path '*/components/lazutils' -print -quit | sed 's#/components/lazutils$##')"
+          lazbuild="$(find "$dist" -name lazbuild -print -quit)"
+          if [ -z "$lazarus_dir" ] || [ -z "$lazbuild" ]; then
+            echo "Could not locate Lazarus sources or lazbuild in the official archive." >&2
+            exit 1
+          fi
+          echo "LAZARUS_DIR=$lazarus_dir" >> "$GITHUB_ENV"
+          echo "LCL_WS=cocoa" >> "$GITHUB_ENV"
+          echo "${lazbuild%/*}" >> "$GITHUB_PATH"
+          openssl_lib="$(brew --prefix openssl@3)/lib"
+          echo "$(brew --prefix openssl@3)/bin" >> "$GITHUB_PATH"
+          if [ -n "${DYLD_LIBRARY_PATH:-}" ]; then
+            openssl_lib="$openssl_lib:$DYLD_LIBRARY_PATH"
+          fi
+          echo "DYLD_LIBRARY_PATH=$openssl_lib" >> "$GITHUB_ENV"
+
+          "$lazbuild" --lazarusdir="$lazarus_dir" --add-package-link "$lazarus_dir/components/printers/printer4lazarus.lpk"
+          "$lazbuild" --lazarusdir="$lazarus_dir" --add-package-link "$lazarus_dir/components/turbopower_ipro/turbopoweripro.lpk"
+          actual_arch="$(fpc -iTP)"
+          if [ "$actual_arch" != "${{ matrix.fpc_arch }}" ]; then
+            echo "Expected native FPC target ${{ matrix.fpc_arch }}, got $actual_arch." >&2
+            exit 1
+          fi
+          fpc -iTO
+          "$lazbuild" --version
+
+      - name: Build app and IDE package
+        run: ./build.sh all
+
+      - name: Run core tests
+        run: ./tests/run_tests.sh
+
+      - name: Run GUI tests
+        run: ./tests/run_gui_tests.sh
+
+      - name: Run IDE adapter tests
+        run: ./tests/run_ide_tests.sh

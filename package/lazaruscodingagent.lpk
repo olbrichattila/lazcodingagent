@@ -22,6 +22,10 @@
         <UnitName Value="uAgentTypes"/>
       </Item>
       <Item>
+        <Filename Value="../src/core/uAgentRules.pas"/>
+        <UnitName Value="uAgentRules"/>
+      </Item>
+      <Item>
         <Filename Value="../src/core/uAgentConfig.pas"/>
         <UnitName Value="uAgentConfig"/>
       </Item>

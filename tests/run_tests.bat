@@ -17,6 +17,7 @@ fpc %FLAGS% tests\tool_driver.pas >"%TEST_OUTPUT%\tool-build.log" 2>&1 || goto :
 fpc %FLAGS% tests\agent_driver.pas >"%TEST_OUTPUT%\agent-build.log" 2>&1 || goto :show_agent
 fpc %FLAGS% tests\test_registry.pas >"%TEST_OUTPUT%\registry-build.log" 2>&1 || goto :show_registry
 fpc %FLAGS% tests\test_file_notifications.pas >"%TEST_OUTPUT%\notifications-build.log" 2>&1 || goto :show_notifications
+fpc %FLAGS% tests\test_agent_rules.pas >"%TEST_OUTPUT%\rules-build.log" 2>&1 || goto :show_rules
 fpc %FLAGS% -gh tests\test_conversation.pas >"%TEST_OUTPUT%\conversation-build.log" 2>&1 || goto :show_conversation
 fpc %FLAGS% -gh tests\conversation_driver.pas >"%TEST_OUTPUT%\history-build.log" 2>&1 || goto :show_history
 
@@ -25,6 +26,7 @@ set "APPDATA=%TEST_OUTPUT%\appdata"
 findstr /r /c:"[1-9][0-9]* unfreed memory blocks" "%TEST_OUTPUT%\heap.log" >nul && type "%TEST_OUTPUT%\heap.log" && goto :fail
 python tests\test_conversation_context.py "%TEST_OUTPUT%\conversation_driver.exe" || goto :fail
 "%TEST_OUTPUT%\test_file_notifications.exe" "%TEST_OUTPUT%" || goto :fail
+"%TEST_OUTPUT%\test_agent_rules.exe" "%TEST_OUTPUT%\project-rules" || goto :fail
 "%TEST_OUTPUT%\test_registry.exe" || goto :fail
 "%TEST_OUTPUT%\test_sse_tool_names.exe" || goto :fail
 python tests\test_local_tools.py "%TEST_OUTPUT%\tool_driver.exe" || goto :fail
@@ -46,6 +48,9 @@ type "%TEST_OUTPUT%\registry-build.log"
 goto :fail
 :show_notifications
 type "%TEST_OUTPUT%\notifications-build.log"
+goto :fail
+:show_rules
+type "%TEST_OUTPUT%\rules-build.log"
 goto :fail
 :show_conversation
 type "%TEST_OUTPUT%\conversation-build.log"

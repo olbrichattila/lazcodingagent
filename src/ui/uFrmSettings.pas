@@ -6,7 +6,7 @@ interface
 
 uses
   Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls, ComCtrls,
-  uAgentTypes, uAgentConfig, uFrmModelPicker;
+  uAgentTypes, uAgentConfig, uFrmModelPicker, uAgentRules, uToolBase;
 
 type
   { TFrmSettings }
@@ -36,6 +36,9 @@ type
     LblProvider: TLabel;
     LblProviderHint: TLabel;
     LstModels: TListBox;
+    LstRules: TListBox;
+    BtnAddRule, BtnEditRule, BtnDeleteRule: TButton;
+    LblRules: TLabel;
     PageControlSettings: TPageControl;
     PnlButtons: TPanel;
     PnlModelActions: TPanel;
@@ -44,6 +47,9 @@ type
     TabKnowledge: TTabSheet;
     TabLLM: TTabSheet;
     procedure BtnAddModelClick(Sender: TObject);
+    procedure BtnAddRuleClick(Sender: TObject);
+    procedure BtnEditRuleClick(Sender: TObject);
+    procedure BtnDeleteRuleClick(Sender: TObject);
     procedure BtnCancelClick(Sender: TObject);
     procedure BtnDeleteModelClick(Sender: TObject);
     procedure BtnFetchServerClick(Sender: TObject);
@@ -56,9 +62,14 @@ type
     procedure LstModelsSelectionChange(Sender: TObject; User: boolean);
   private
     FActiveModel: string;
+    FProjectRoot: string;
+    FRuleFiles: TStringList;
     procedure UpdateProviderUI(AProvider: TLLMProvider; AResetDefaults: Boolean);
     procedure UpdateActiveModelLabel;
+    procedure RefreshRules;
   public
+    destructor Destroy; override;
+    property ProjectRoot: string read FProjectRoot write FProjectRoot;
   end;
 
 var
@@ -70,12 +81,69 @@ implementation
 
 { TFrmSettings }
 
+function EditRuleText(const ACaption, AInitialText: string; out AText: string): Boolean;
+var Dialog: TForm; Memo: TMemo; SaveButton, CancelButton: TButton;
+begin
+  Dialog := TForm.Create(nil);
+  try
+    Dialog.Caption := ACaption; Dialog.Position := poScreenCenter;
+    Dialog.Width := 520; Dialog.Height := 360; Dialog.BorderStyle := bsSizeable;
+    Memo := TMemo.Create(Dialog); Memo.Parent := Dialog; Memo.Align := alClient;
+    Memo.ScrollBars := ssAutoBoth; Memo.WordWrap := True; Memo.Text := AInitialText;
+    SaveButton := TButton.Create(Dialog); SaveButton.Parent := Dialog;
+    SaveButton.Caption := 'Save'; SaveButton.ModalResult := mrOk;
+    SaveButton.Align := alBottom; SaveButton.Height := 32; SaveButton.Default := True;
+    CancelButton := TButton.Create(Dialog); CancelButton.Parent := Dialog;
+    CancelButton.Caption := 'Cancel'; CancelButton.ModalResult := mrCancel;
+    CancelButton.Align := alBottom; CancelButton.Height := 32; CancelButton.Cancel := True;
+    Dialog.ActiveControl := Memo;
+    Result := Dialog.ShowModal = mrOk;
+    if Result then AText := Memo.Text;
+  finally
+    Dialog.Free;
+  end;
+end;
+
+destructor TFrmSettings.Destroy;
+begin
+  FRuleFiles.Free;
+  inherited Destroy;
+end;
+
+procedure TFrmSettings.RefreshRules;
+var I, BreakAt: Integer; Content, Summary: string;
+begin
+  if FRuleFiles = nil then FRuleFiles := TStringList.Create;
+  TAgentRules.ListFiles(FProjectRoot, FRuleFiles);
+  LstRules.Items.BeginUpdate;
+  try
+    LstRules.Items.Clear;
+    for I := 0 to FRuleFiles.Count - 1 do
+    begin
+      Content := Trim(TAgentRules.ReadFile(FRuleFiles[I]));
+      BreakAt := Pos(LineEnding, Content);
+      if BreakAt = 0 then BreakAt := Pos(#10, Content);
+      if BreakAt > 0 then Content := Copy(Content, 1, BreakAt - 1);
+      Summary := Trim(Content);
+      if Length(Summary) > 72 then Summary := Copy(Summary, 1, 69) + '...';
+      if Summary = '' then Summary := '(empty rule)';
+      LstRules.Items.Add(ExtractFileName(FRuleFiles[I]) + ' — ' + Summary);
+    end;
+  finally
+    LstRules.Items.EndUpdate;
+  end;
+  BtnEditRule.Enabled := LstRules.Items.Count > 0;
+  BtnDeleteRule.Enabled := LstRules.Items.Count > 0;
+end;
+
 procedure TFrmSettings.FormShow(Sender: TObject);
 var
   Cfg: TAgentConfig;
   I: Integer;
   ProvName: string;
 begin
+  if FProjectRoot = '' then FProjectRoot := GetEffectiveProjectDir;
+  RefreshRules;
   Cfg := GetAgentConfig;
 
   CmbProvider.Items.Clear;
@@ -127,6 +195,44 @@ begin
   EdtContextBudget.Text := IntToStr(Cfg.ContextBudget);
   EdtRecentTurns.Text := IntToStr(Cfg.RecentTurns);
   UpdateActiveModelLabel;
+end;
+
+procedure TFrmSettings.BtnAddRuleClick(Sender: TObject);
+var Content: string;
+begin
+  if not EditRuleText('Add Project Rule', '', Content) then Exit;
+  if Trim(Content) = '' then begin ShowMessage('Enter a rule description.'); Exit; end;
+  try
+    TAgentRules.CreateRule(FProjectRoot, Content);
+    RefreshRules;
+  except on E: Exception do ShowMessage('Could not add rule: ' + E.Message); end;
+end;
+
+procedure TFrmSettings.BtnEditRuleClick(Sender: TObject);
+var I: Integer; Content, UpdatedContent: string;
+begin
+  I := LstRules.ItemIndex;
+  if (I < 0) or (I >= FRuleFiles.Count) then Exit;
+  Content := TAgentRules.ReadFile(FRuleFiles[I]);
+  if not EditRuleText('Edit Project Rule', Content, UpdatedContent) then Exit;
+  if Trim(UpdatedContent) = '' then begin ShowMessage('Enter a rule description.'); Exit; end;
+  try
+    TAgentRules.WriteFile(FRuleFiles[I], UpdatedContent);
+    RefreshRules;
+    LstRules.ItemIndex := I;
+  except on E: Exception do ShowMessage('Could not update rule: ' + E.Message); end;
+end;
+
+procedure TFrmSettings.BtnDeleteRuleClick(Sender: TObject);
+var I: Integer;
+begin
+  I := LstRules.ItemIndex;
+  if (I < 0) or (I >= FRuleFiles.Count) then Exit;
+  if MessageDlg('Delete the selected project rule?', mtConfirmation, [mbYes, mbNo], 0) <> mrYes then Exit;
+  try
+    if not DeleteFile(FRuleFiles[I]) then raise Exception.Create('Could not remove rule file.');
+    RefreshRules;
+  except on E: Exception do ShowMessage('Could not delete rule: ' + E.Message); end;
 end;
 
 procedure TFrmSettings.UpdateProviderUI(AProvider: TLLMProvider; AResetDefaults: Boolean);

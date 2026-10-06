@@ -202,8 +202,9 @@ def run(driver):
             if not IS_WINDOWS:
                 child=int((root/'child.pid').read_text())
                 time.sleep(.05)
-                stat=Path(f'/proc/{child}/stat')
-                assert not stat.exists() or stat.read_text().split()[2]=='Z', 'child still running'
+                status=subprocess.run(['ps','-p',str(child),'-o','stat='],text=True,capture_output=True,check=False)
+                process_state=status.stdout.strip()
+                assert not process_state or process_state.startswith('Z'), 'child still running'
             result = ok('shell',{'command':timeout_command}, cancel_after_ms=100)
             assert result['cancelled']
             result = ok('shell',{'command':before_cancel_command}, cancel_after_ms=100)
