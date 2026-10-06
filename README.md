@@ -278,7 +278,8 @@ Custom file tools can call `NotifyToolFileChanged(Path)` after each successful c
 ./build.sh all
 ```
 
-On native Windows, the corresponding commands are:
+The native Windows build and test workflows have also been exercised. Run the
+corresponding batch scripts from a Windows command prompt:
 
 ```bat
 tests\run_tests.bat
@@ -288,8 +289,10 @@ build.bat all
 ```
 
 Windows test runners require native Lazarus/Free Pascal, Python, `git`,
-`rg.exe`, and the TurboPowerIPro and Printer4Lazarus packages. GUI and IDE
-tests use the installed Windows widgetset and do not require Xvfb. Linux test
+`rg.exe`, and the TurboPowerIPro and Printer4Lazarus packages. Keep `fpc.exe`
+and `lazbuild.exe` on `PATH`; set `LAZARUS_DIR` if the scripts cannot find the
+Lazarus installation in the usual locations. GUI and IDE tests default to the
+`win32` widgetset (override with `LCL_WS`) and do not require Xvfb. Linux test
 runners remain Bash/Linux-specific.
 
 The checked-in `packagefiles.xml` is Lazarus IDE machine metadata and may
