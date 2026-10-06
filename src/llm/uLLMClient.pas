@@ -5,8 +5,11 @@ unit uLLMClient;
 interface
 
 uses
-  Classes, SysUtils, fphttpclient, opensslsockets, fpjson, jsonparser,
-  uAgentTypes, uAgentHistory, uAgentConfig, uToolBase, uLLMAdapter;
+  Classes, SysUtils,
+  {$IFNDEF MSWINDOWS}fphttpclient, opensslsockets,{$ENDIF}
+  fpjson, jsonparser,
+  uAgentTypes, uAgentHistory, uAgentConfig, uToolBase, uLLMAdapter
+  {$IFDEF MSWINDOWS}, uWindowsHTTP{$ENDIF};
 
 type
   TSSEChunkEvent = procedure(const AChunk: string; AIsReasoning: Boolean) of object;
@@ -467,7 +470,9 @@ end;
 function TLLMClient.RequestResponse(AMessages: TJSONArray; AStream, AEnableTools: Boolean;
   AMode: TAgentMode; AOnChunk: TSSEChunkEvent; AMaxTokens: Integer;
   out AMessage: TChatMessage; out AError: string): Boolean;
-var Req: TJSONObject; Tools: TJSONArray; Client: TFPHTTPClient; Input: TRawByteStringStream;
+var Req: TJSONObject; Tools: TJSONArray;
+  {$IFNDEF MSWINDOWS}Client: TFPHTTPClient; Input: TRawByteStringStream;{$ENDIF}
+  {$IFDEF MSWINDOWS}Headers: TStringList;{$ENDIF}
   Output: TStringStream; SSE: TSSEStream; Data: TJSONData;
   Body, Diagnostic, Fence: string; Status, I, RunLength, MaxRun: Integer;
 begin
@@ -484,12 +489,18 @@ begin
   except AMessages.Free; raise; end;
   Req := FAdapter.BuildRequest(AMessages, Tools, FConfig.ModelName, FConfig.Provider, AStream, AMaxTokens);
   try Body := Req.AsJSON; finally Req.Free; end;
+  {$IFNDEF MSWINDOWS}
   Client := TFPHTTPClient.Create(nil);
-  Input := nil; Output := nil; SSE := nil;
+  Input := nil;
+  {$ELSE}
+  Headers := TStringList.Create;
+  {$ENDIF}
+  Output := nil; SSE := nil;
   try
-    Input := TRawByteStringStream.Create(Body);
     Output := TStringStream.Create('');
     SSE := TSSEStream.Create(AOnChunk);
+    {$IFNDEF MSWINDOWS}
+    Input := TRawByteStringStream.Create(Body);
     Client.AllowRedirect := True;
     Client.ConnectTimeout := 30000; Client.IOTimeout := 120000;
     Client.AddHeader('Content-Type', 'application/json');
@@ -497,9 +508,22 @@ begin
     if AStream then Client.AddHeader('Accept', 'text/event-stream');
     if FConfig.APIKey <> '' then Client.AddHeader('Authorization', 'Bearer ' + FConfig.APIKey);
     Client.RequestBody := Input;
+    {$ELSE}
+    Headers.Add('Content-Type: application/json');
+    Headers.Add('User-Agent: ' + LLMUserAgent);
+    if AStream then Headers.Add('Accept: text/event-stream');
+    if FConfig.APIKey <> '' then Headers.Add('Authorization: Bearer ' + FConfig.APIKey);
+    {$ENDIF}
     try
+      {$IFNDEF MSWINDOWS}
       if AStream then Client.Post(FConfig.EndpointURL, SSE) else Client.Post(FConfig.EndpointURL, Output);
       Status := Client.ResponseStatusCode;
+      {$ELSE}
+      if AStream then
+        WindowsHTTPRequest('POST', FConfig.EndpointURL, Headers, RawByteString(Body), SSE, Status)
+      else
+        WindowsHTTPRequest('POST', FConfig.EndpointURL, Headers, RawByteString(Body), Output, Status);
+      {$ENDIF}
       if Status >= 400 then
       begin
         if AStream then
@@ -545,8 +569,13 @@ begin
       end;
     end;
   finally
+    {$IFNDEF MSWINDOWS}
     Client.RequestBody := nil;
-    Input.Free; Output.Free; SSE.Free; Client.Free;
+    Input.Free; Client.Free;
+    {$ELSE}
+    Headers.Free;
+    {$ENDIF}
+    Output.Free; SSE.Free;
   end;
 end;
 
@@ -588,7 +617,11 @@ end;
 
 function TLLMClient.FetchAvailableModels(AModelList: TStrings; out AErrorMsg: string): Boolean;
 var
+  {$IFNDEF MSWINDOWS}
   Client: TFPHTTPClient;
+  {$ELSE}
+  Headers: TStringList;
+  {$ENDIF}
   ModelsURL: string;
   ResponseBody: string;
   ResponseStream: TStringStream;
@@ -619,20 +652,35 @@ begin
   else
     ModelsURL := FConfig.EndpointURL;
 
+  {$IFNDEF MSWINDOWS}
   Client := TFPHTTPClient.Create(nil);
+  {$ELSE}
+  Headers := TStringList.Create;
+  {$ENDIF}
   ResponseStream := TStringStream.Create('');
   try
+    {$IFNDEF MSWINDOWS}
     Client.AllowRedirect := True;
     Client.AddHeader('User-Agent', LLMUserAgent);
     if FConfig.APIKey <> '' then
       Client.AddHeader('Authorization', 'Bearer ' + FConfig.APIKey);
+    {$ELSE}
+    Headers.Add('User-Agent: ' + LLMUserAgent);
+    if FConfig.APIKey <> '' then
+      Headers.Add('Authorization: Bearer ' + FConfig.APIKey);
+    {$ENDIF}
 
     StatusCode := 0;
     try
+      {$IFNDEF MSWINDOWS}
       Client.Get(ModelsURL, ResponseStream);
       StatusCode := Client.ResponseStatusCode;
+      {$ELSE}
+      WindowsHTTPRequest('GET', ModelsURL, Headers, '', ResponseStream, StatusCode);
+      {$ENDIF}
       ResponseBody := ResponseStream.DataString;
     except
+      {$IFNDEF MSWINDOWS}
       on E: EHTTPClient do
       begin
         StatusCode := Client.ResponseStatusCode;
@@ -645,6 +693,13 @@ begin
         AErrorMsg := 'Network Error: ' + E.Message;
         Exit;
       end;
+      {$ELSE}
+      on E: Exception do
+      begin
+        AErrorMsg := 'Network Error: ' + E.Message;
+        Exit;
+      end;
+      {$ENDIF}
     end;
 
     ResponseBody := Trim(ResponseBody);
@@ -723,7 +778,7 @@ begin
 
   finally
     ResponseStream.Free;
-    Client.Free;
+    {$IFNDEF MSWINDOWS}Client.Free;{$ELSE}Headers.Free;{$ENDIF}
   end;
 end;
 

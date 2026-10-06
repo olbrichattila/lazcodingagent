@@ -1,7 +1,8 @@
 program gui_driver;
 {$mode objfpc}{$H+}
-uses {$IFDEF UNIX}cthreads,{$ENDIF} Interfaces, Forms, ExtCtrls, Classes, SysUtils, fpjson,
-  uAgentTypes, uAgentConfig, uToolBase, uFrmChat, uFrmPlanResult, uMarkdownView;
+uses {$IFDEF UNIX}cthreads,{$ENDIF} Interfaces, Forms, ExtCtrls, ComCtrls, Classes,
+  Controls, StdCtrls, SysUtils, fpjson,
+  uAgentTypes, uAgentConfig, uToolBase, uFrmChat, uFrmChatSession, uFrmPlanResult, uMarkdownView;
 type
   TChatAccess = class(TFrmChat)
   public
@@ -30,6 +31,129 @@ begin Result := RenderHTML(Markdown); end;
 
 procedure Check(Condition: Boolean; const Message: string);
 begin if not Condition then raise Exception.Create(Message); end;
+
+function TabBarOf(Chat: TFrmChat): TScrollBox;
+var I: Integer;
+begin
+  Result := nil;
+  for I := 0 to Chat.ControlCount - 1 do
+    if Chat.Controls[I] is TScrollBox then Exit(TScrollBox(Chat.Controls[I]));
+end;
+
+function TabHeaderCount(Chat: TFrmChat): Integer;
+var I: Integer; TabBar: TScrollBox;
+begin
+  Result := 0;
+  TabBar := TabBarOf(Chat);
+  if TabBar = nil then Exit;
+  for I := 0 to TabBar.ControlCount - 1 do
+    if (TabBar.Controls[I] is TPanel) and
+       (Copy(TabBar.Controls[I].Name, 1, 10) = 'ChatHeader') then Inc(Result);
+end;
+
+function CloseButtonAt(Chat: TFrmChat; AIndex: Integer): TButton;
+var I, J, HeaderIndex: Integer; TabBar: TScrollBox; Panel: TPanel;
+begin
+  Result := nil;
+  TabBar := TabBarOf(Chat);
+  if TabBar = nil then Exit;
+  HeaderIndex := 0;
+  for I := 0 to TabBar.ControlCount - 1 do
+    if (TabBar.Controls[I] is TPanel) and
+       (Copy(TabBar.Controls[I].Name, 1, 10) = 'ChatHeader') then
+    begin
+      if HeaderIndex = AIndex then
+      begin
+        Panel := TPanel(TabBar.Controls[I]);
+        for J := 0 to Panel.ControlCount - 1 do
+          if (Panel.Controls[J] is TButton) and (TButton(Panel.Controls[J]).Caption = '×') then
+            Exit(TButton(Panel.Controls[J]));
+      end;
+      Inc(HeaderIndex);
+    end;
+end;
+
+function ChatSessionAt(Chat: TFrmChat; AIndex: Integer): TFrmChatSession;
+var I: Integer; Pages: TPageControl; Page: TTabSheet; J: Integer;
+begin
+  Result := nil;
+  Pages := nil;
+  for I := 0 to Chat.ControlCount - 1 do
+    if Chat.Controls[I] is TPageControl then
+      Pages := TPageControl(Chat.Controls[I]);
+  if (Pages = nil) or (AIndex < 0) or (AIndex >= Pages.PageCount) then Exit;
+  Page := Pages.Pages[AIndex];
+  for J := 0 to Page.ControlCount - 1 do
+    if Page.Controls[J] is TFrmChatSession then
+      Exit(TFrmChatSession(Page.Controls[J]));
+end;
+
+procedure WaitForTabCount(Chat: TFrmChat; ACount: Integer);
+var Started: QWord;
+begin
+  Started := GetTickCount64;
+  repeat
+    Application.ProcessMessages;
+    if TabHeaderCount(Chat) = ACount then Exit;
+    Sleep(2);
+  until GetTickCount64 - Started > 3000;
+  Check(TabHeaderCount(Chat) = ACount, 'Deferred tab close did not settle');
+end;
+
+procedure WaitForReplacementSession(Chat: TFrmChat; OldSession: TFrmChatSession);
+var Started: QWord; Session: TFrmChatSession;
+begin
+  Started := GetTickCount64;
+  repeat
+    Application.ProcessMessages;
+    Session := ChatSessionAt(Chat, 0);
+    if (TabHeaderCount(Chat) = 1) and (Session <> nil) and
+       (Session <> OldSession) then Exit;
+    Sleep(2);
+  until GetTickCount64 - Started > 3000;
+  Check(False, 'Closing the final tab did not create a replacement chat');
+end;
+
+procedure ClickCloseTab(Chat: TFrmChat; AIndex: Integer);
+var Button: TButton;
+begin
+  Button := CloseButtonAt(Chat, AIndex);
+  Check(Button <> nil, 'Tab close button not found');
+  Button.Click;
+end;
+
+procedure ClickAddTab(Chat: TFrmChat);
+var I: Integer; TabBar: TScrollBox;
+begin
+  TabBar := TabBarOf(Chat);
+  Check(TabBar <> nil, 'Tab strip not found');
+  for I := 0 to TabBar.ControlCount - 1 do
+    if (TabBar.Controls[I] is TButton) and (TButton(TabBar.Controls[I]).Caption = '+') then
+    begin
+      TButton(TabBar.Controls[I]).Click;
+      Exit;
+    end;
+  raise Exception.Create('Add tab button not found');
+end;
+
+function TabHeaderCaption(Chat: TFrmChat; AIndex: Integer): string;
+var I, J, HeaderIndex: Integer; TabBar: TScrollBox;
+begin
+  Result := '';
+  TabBar := TabBarOf(Chat);
+  if TabBar = nil then Exit;
+  HeaderIndex := 0;
+  for I := 0 to TabBar.ControlCount - 1 do
+    if (TabBar.Controls[I] is TPanel) and
+       (Copy(TabBar.Controls[I].Name, 1, 10) = 'ChatHeader') then
+    begin
+      if HeaderIndex = AIndex then
+        for J := 0 to TabBar.Controls[I].ControlCount - 1 do
+          if TabBar.Controls[I].Controls[J] is TLabel then
+            Exit(Trim(TLabel(TabBar.Controls[I].Controls[J]).Caption));
+      Inc(HeaderIndex);
+    end;
+end;
 
 const LiteralCommand = #10 + '  cat <<''COMMAND''' + #10 +
   '<script>"quoted" & text</script>' + #10 + '```' + #10 + '````' + #10 +
@@ -84,11 +208,13 @@ end;
 procedure TObserver.RunScenarios(Sender: TObject; var Done: Boolean);
 var O: TJSONObject; RefreshPaths: TJSONArray; I: Integer; Start: QWord;
   Chat: TChatAccess;
+  TabSession, ClosedSession: TFrmChatSession;
   HTML, Before: string;
-  PreviewBefore, PathCount: Integer;
+  PreviewBefore, PathCount, TabsBefore, CommandStartsBefore,
+    CommandFinishesBefore: Integer;
   TempFile: TStringList;
 begin
-  Application.OnIdle := nil;
+    Application.OnIdle := nil;
   try
     Chat := TChatAccess(FrmChat);
     { Malformed, absent, and non-string commands use the ordinary activity. }
@@ -225,8 +351,67 @@ begin
     Send('gui_shell', 2);
     if not FileExists(IncludeTrailingPathDelimiter(ProviderRoot)+'shell-created') then raise Exception.Create('Active project switch was not refreshed');
     GProjectDirProvider := nil;
+    { Closing a tab must not destroy the button while its click callback is
+      still dispatching. Exercise non-final, repeated, final, and running tabs. }
+    TabsBefore := TabHeaderCount(Chat);
+    Check(TabsBefore > 0, 'GUI fixture started without a chat tab');
+    while TabHeaderCount(Chat) < TabsBefore + 2 do
+    begin
+      TabsBefore := TabHeaderCount(Chat);
+      ClickAddTab(Chat);
+      WaitForTabCount(Chat, TabsBefore + 1);
+    end;
+    TabsBefore := TabHeaderCount(Chat);
+    ClickCloseTab(Chat, 1);
+    WaitForTabCount(Chat, TabsBefore - 1);
+    for I := 0 to 2 do
+    begin
+      TabsBefore := TabHeaderCount(Chat);
+      ClickAddTab(Chat);
+      WaitForTabCount(Chat, TabsBefore + 1);
+      ClickCloseTab(Chat, TabHeaderCount(Chat) - 1);
+      WaitForTabCount(Chat, TabsBefore);
+    end;
+    while TabHeaderCount(Chat) > 1 do
+    begin
+      TabsBefore := TabHeaderCount(Chat);
+      ClickCloseTab(Chat, 0);
+      WaitForTabCount(Chat, TabsBefore - 1);
+    end;
+    ClosedSession := ChatSessionAt(Chat, 0);
+    Check(ClosedSession <> nil, 'Final chat session not found');
+    ClickCloseTab(Chat, 0);
+    WaitForReplacementSession(Chat, ClosedSession);
+    Check(TabHeaderCaption(Chat, 0) = 'New Chat', 'Final-tab close did not create a blank chat');
+
+    { Closing a running tab must synchronously stop its worker before freeing
+      the session, then defer only the tab-strip rebuild. }
+    DeleteFile(IncludeTrailingPathDelimiter(ProviderRoot) + 'running');
+    TabSession := ChatSessionAt(Chat, 0);
+    Check(TabSession <> nil, 'Replacement chat session not found');
+    TabSession.CmbMode.ItemIndex := 2;
+    TabSession.CmbModeChange(nil);
+    TabSession.MemInput.Text := 'gui_slow';
+    TabSession.BtnSendClick(nil);
+    Start := GetTickCount64;
+    while not FileExists(IncludeTrailingPathDelimiter(ProviderRoot) + 'running') do
+    begin
+      Application.ProcessMessages;
+      Sleep(5);
+      if GetTickCount64 - Start > 3000 then raise Exception.Create('Slow tool did not start in close-tab fixture');
+    end;
+    CommandStartsBefore := Observer.CommandStarts;
+    CommandFinishesBefore := Observer.CommandFinishes;
+    ClosedSession := TabSession;
+    ClickCloseTab(Chat, 0);
+    WaitForReplacementSession(Chat, ClosedSession);
+    Check((Observer.CommandStarts = CommandStartsBefore + 1) and
+      (Observer.CommandFinishes = CommandFinishesBefore + 1),
+      'Closing a running tab did not finish its command refresh');
+    DeleteFile(IncludeTrailingPathDelimiter(ProviderRoot) + 'running');
     O := TJSONObject.Create(['previewed', Previewed, 'main_thread_refresh', MainThreadRefresh,
-      'clear_cancelled', True, 'project_switched', True, 'commands_displayed', True]); RefreshPaths := TJSONArray.Create;
+      'clear_cancelled', True, 'project_switched', True, 'commands_displayed', True,
+      'tab_close_safe', True, 'running_tab_closed', True]); RefreshPaths := TJSONArray.Create;
     for I := 0 to Paths.Count-1 do RefreshPaths.Add(Paths[I]);
     O.Add('refresh_paths', RefreshPaths);
     try WriteLn(O.AsJSON); finally O.Free; end;

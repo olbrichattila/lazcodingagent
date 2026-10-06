@@ -14,20 +14,26 @@ type
     FTabBar: TScrollBox;
     FPages: TPageControl;
     FAddButton: TButton;
+    FCloseFinalizeTimer: TTimer;
+    FCloseFinalizePending: Boolean;
     FLoading, FShuttingDown: Boolean;
     procedure AddTabClick(Sender: TObject);
     procedure SelectTabClick(Sender: TObject);
     procedure CloseTabClick(Sender: TObject);
+    procedure FinalizeTabClose(Sender: TObject);
     procedure SessionChanged(Sender: TObject);
-    procedure AddTab(AData: TJSONObject = nil);
+    procedure AddTab(AData: TJSONObject = nil; ARebuildTabBar: Boolean = True);
     procedure RebuildTabBar;
     procedure SaveSessions;
     procedure LoadSessions;
     function SessionAt(AIndex: Integer): TFrmChatSession;
     function StoragePath: string;
+  public
+    procedure RefreshProjectDirectoryInfo;
   published
     procedure FormCreate(Sender: TObject);
     procedure FormDestroy(Sender: TObject);
+    procedure FormActivate(Sender: TObject);
   end;
 
 var
@@ -53,6 +59,11 @@ begin
   FPages.Align := alClient;
   FPages.ShowTabs := False;
   FPages.TabHeight := 0;
+  FCloseFinalizePending := False;
+  FCloseFinalizeTimer := TTimer.Create(Self);
+  FCloseFinalizeTimer.Enabled := False;
+  FCloseFinalizeTimer.Interval := 1;
+  FCloseFinalizeTimer.OnTimer := @FinalizeTabClose;
   LoadSessions;
   if FPages.PageCount = 0 then AddTab;
   if (FPages.PageCount > 0) then
@@ -68,6 +79,8 @@ procedure TFrmChat.FormDestroy(Sender: TObject);
 var I: Integer; Session: TFrmChatSession; WasRunning: Boolean;
 begin
   FShuttingDown := True;
+  FCloseFinalizeTimer.Enabled := False;
+  FCloseFinalizePending := False;
   for I := 0 to FPages.PageCount - 1 do
   begin
     Session := SessionAt(I);
@@ -79,6 +92,22 @@ begin
     end;
   end;
   SaveSessions;
+end;
+
+procedure TFrmChat.FormActivate(Sender: TObject);
+begin
+  RefreshProjectDirectoryInfo;
+end;
+
+procedure TFrmChat.RefreshProjectDirectoryInfo;
+var I: Integer; Session: TFrmChatSession;
+begin
+  if not Assigned(FPages) then Exit;
+  for I := 0 to FPages.PageCount - 1 do
+  begin
+    Session := SessionAt(I);
+    if Session <> nil then Session.RefreshProjectDirectoryInfo;
+  end;
 end;
 
 function TFrmChat.StoragePath: string;
@@ -97,7 +126,7 @@ begin
       Exit(TFrmChatSession(Sheet.Controls[I]));
 end;
 
-procedure TFrmChat.AddTab(AData: TJSONObject);
+procedure TFrmChat.AddTab(AData: TJSONObject; ARebuildTabBar: Boolean);
 var Sheet: TTabSheet; Session: TFrmChatSession;
 begin
   Sheet := TTabSheet.Create(FPages);
@@ -109,13 +138,26 @@ begin
   Session.OnStateChange := @SessionChanged;
   if AData <> nil then Session.LoadState(AData);
   FPages.ActivePage := Sheet;
-  RebuildTabBar;
-  if not FLoading then SaveSessions;
+  if ARebuildTabBar then
+  begin
+    RebuildTabBar;
+    if not FLoading then SaveSessions;
+  end;
 end;
 
 procedure TFrmChat.AddTabClick(Sender: TObject);
 begin
-  AddTab;
+  if FShuttingDown or FCloseFinalizePending then Exit;
+  { The plus button is also part of the tab strip. Defer its destruction for
+    the same reason as a close button. }
+  FCloseFinalizePending := True;
+  try
+    AddTab(nil, False);
+  except
+    FCloseFinalizePending := False;
+    raise;
+  end;
+  FCloseFinalizeTimer.Enabled := True;
 end;
 
 procedure TFrmChat.SelectTabClick(Sender: TObject);
@@ -139,16 +181,40 @@ end;
 procedure TFrmChat.CloseTabClick(Sender: TObject);
 var I, CloseIndex: Integer; Session: TFrmChatSession;
 begin
+  if FShuttingDown or FCloseFinalizePending then Exit;
   if not (Sender is TControl) then Exit;
   CloseIndex := TControl(Sender).Tag;
   if (CloseIndex < 0) or (CloseIndex >= FPages.PageCount) then Exit;
+  FCloseFinalizePending := True;
   Session := SessionAt(CloseIndex);
-  if Session <> nil then Session.StopRun;
-  FPages.Pages[CloseIndex].Free;
+  try
+    if Session <> nil then Session.StopRun;
+    FPages.Pages[CloseIndex].Free;
+  except
+    FCloseFinalizePending := False;
+    raise;
+  end;
+  { Do not rebuild here: the sender is the close button in the tab strip, and
+    destroying it before its OnClick dispatch returns can cause an AV. }
+  FCloseFinalizeTimer.Enabled := True;
+end;
+
+procedure TFrmChat.FinalizeTabClose(Sender: TObject);
+begin
+  FCloseFinalizeTimer.Enabled := False;
+  if FShuttingDown then
+  begin
+    FCloseFinalizePending := False;
+    Exit;
+  end;
+  FCloseFinalizePending := False;
   if FPages.PageCount = 0 then AddTab
-  else if FPages.ActivePageIndex < 0 then FPages.ActivePageIndex := FPages.PageCount - 1;
-  RebuildTabBar;
-  SaveSessions;
+  else
+  begin
+    if FPages.ActivePageIndex < 0 then FPages.ActivePageIndex := FPages.PageCount - 1;
+    RebuildTabBar;
+    SaveSessions;
+  end;
 end;
 
 procedure TFrmChat.RebuildTabBar;

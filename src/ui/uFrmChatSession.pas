@@ -5,7 +5,7 @@ unit uFrmChatSession;
 interface
 
 uses
-  Classes, SysUtils, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls,
+  Classes, SysUtils, Types, Forms, Controls, Graphics, Dialogs, StdCtrls, ExtCtrls,
   fpjson, jsonparser,
   uAgentTypes, uAgentCore, uAgentThread, uToolBase, uAgentHistory, uFrmSettings, uFrmPlanResult,
   uMarkdownView;
@@ -39,6 +39,7 @@ type
     procedure FormShow(Sender: TObject);
     procedure MemInputKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
     procedure MemInputChange(Sender: TObject);
+    procedure MemInputEnter(Sender: TObject);
   private
     FAgent: TAgentCore;
     FWorkerThread: TAgentWorkerThread;
@@ -91,6 +92,7 @@ type
     procedure StopRun;
     procedure SetSharedSettingsEnabled(AEnabled: Boolean);
     procedure SynchronizeSharedModel;
+    procedure RefreshProjectDirectoryInfo;
     property IsRunning: Boolean read GetIsRunning;
     function SaveState: TJSONObject;
     property OnStateChange: TNotifyEvent read FOnStateChange write FOnStateChange;
@@ -158,6 +160,16 @@ begin
 end;
 
 procedure TFrmChatSession.FormShow(Sender: TObject);
+begin
+  UpdateProjectDirectoryInfo;
+end;
+
+procedure TFrmChatSession.MemInputEnter(Sender: TObject);
+begin
+  UpdateProjectDirectoryInfo;
+end;
+
+procedure TFrmChatSession.RefreshProjectDirectoryInfo;
 begin
   UpdateProjectDirectoryInfo;
 end;
@@ -740,9 +752,14 @@ begin
 end;
 
 procedure TFrmChatSession.ScrollChatToBottom(Data: PtrInt);
+var
+  ContentSize: TSize;
 begin
   if Assigned(FChatView) then
-    FChatView.VScrollPos := 1000000000;
+  begin
+    ContentSize := FChatView.GetContentSize;
+    FChatView.VScrollPos := ContentSize.cy;
+  end;
 end;
 
 procedure TFrmChatSession.AppendAssistantMessage(const AAnswer, AThinking: string);
@@ -981,6 +998,7 @@ begin
   FHistoryMarkdown := AData.Get('transcript', '');
   MemInput.Text := AData.Get('input', '');
   FChatView.SetMarkdown(FHistoryMarkdown);
+  Application.QueueAsyncCall(@ScrollChatToBottom, 0);
   H := TJSONObject(AData.Find('history'));
   FAgent.History.LoadJSON(H);
   FAgent.ToolSession.Clear;

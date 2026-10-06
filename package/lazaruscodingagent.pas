@@ -9,9 +9,9 @@ interface
 
 uses
   uAgentTypes, uAgentConfig, uAgentHistory, uAgentCore, uAgentThread, 
-  uLLMClient, uToolBase, uToolFileOps, uFrmSettings, uFrmModelPicker, 
-  uFrmChat, uFrmChatSession, uFrmPlanResult, uMarkdownView, uAgentPlugin, 
-  uToolPaths, uToolProcess, uToolPatch, uToolLocal, uLLMAdapter, 
+  uLLMClient, uWindowsHTTP, uToolBase, uToolFileOps, uFrmSettings, 
+  uFrmModelPicker, uFrmChat, uFrmChatSession, uFrmPlanResult, uMarkdownView, 
+  uAgentPlugin, uToolPaths, uToolProcess, uToolPatch, uToolLocal, uLLMAdapter, 
   uAgentContext, LazarusPackageIntf;
 
 implementation

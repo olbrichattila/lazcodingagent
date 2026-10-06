@@ -42,6 +42,10 @@
         <UnitName Value="uLLMClient"/>
       </Item>
       <Item>
+        <Filename Value="../src/llm/uWindowsHTTP.pas"/>
+        <UnitName Value="uWindowsHTTP"/>
+      </Item>
+      <Item>
         <Filename Value="../src/tools/uToolBase.pas"/>
         <UnitName Value="uToolBase"/>
       </Item>

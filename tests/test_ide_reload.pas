@@ -2,7 +2,7 @@ program test_ide_reload;
 {$mode objfpc}{$H+}
 uses {$IFDEF UNIX}cthreads, BaseUnix,{$ENDIF} {$IFDEF WINDOWS}Windows,{$ENDIF}
   Interfaces, Forms, Controls, Classes, SysUtils, Types, Dialogs, LCLType,
-  SrcEditorIntf, LazIDEIntf, ProjectIntf, LazMsgWorker, CodeToolManager,
+  SrcEditorIntf, LazIDEIntf, ProjectIntf, LazMsgWorker, CodeToolManager, LazFileUtils,
   uAgentPlugin;
 {$IFDEF WINDOWS}
 function WinCreateSymbolicLink(LinkName, TargetName: PChar; Flags: DWORD): BOOL; stdcall;
@@ -26,6 +26,8 @@ type
   TTestProject = class(TLazProject)
   public
     Root: string;
+    InfoFile, ProjectDir: string;
+    function GetMainFile: TLazProjectFile; override;
     function GetProjectInfoFile: string; override;
     function GetDirectory: string; override;
   end;
@@ -87,8 +89,12 @@ function TTestEditor.GetCursorTextXY: TPoint; begin Result := Cursor; end;
 procedure TTestEditor.SetCursorTextXY(const Value: TPoint); begin Cursor := Value; end;
 function TTestEditor.GetTopLine: Integer; begin Result := Top; end;
 procedure TTestEditor.SetTopLine(const Value: Integer); begin Top := Value; end;
-function TTestProject.GetProjectInfoFile: string; begin Result := Root + '/fixture.lpi'; end;
-function TTestProject.GetDirectory: string; begin Result := Root; end;
+function TTestProject.GetProjectInfoFile: string;
+begin Result := InfoFile; end;
+function TTestProject.GetMainFile: TLazProjectFile;
+begin Result := nil; end;
+function TTestProject.GetDirectory: string;
+begin if ProjectDir <> '' then Result := ProjectDir else Result := Root; end;
 function TTestWindow.GetWindowID: Integer; begin Result := 42; end;
 function TTestWindow.IndexOfEditorInShareWith(Editor: TSourceEditorInterface): Integer;
 begin Result := Editors.IndexOf(Editor); end;
@@ -164,8 +170,9 @@ function TTestIDE.UnexpectedQuestion(const Caption, Msg: string; DlgType: TMsgDl
 begin raise Exception.Create('Unexpected modal question'); end;
 var IDE: TTestIDE; Editors: TTestEditors; Manager: TAgentPluginManager;
   Project: TTestProject; Window: TTestWindow; AllEditors: TList;
-  Paths: TStringList; UnitEditor, Dual, Unrelated, Outside, FormUnit, Linked: TTestEditor;
-  Root, Error, Resource: string; I, Before, Date: Integer;
+  Paths: TStringList; UnitEditor, Dual, Unrelated, Outside, FormUnit, Linked,
+    ProjectEditor: TTestEditor;
+  Root, Error, Resource, OriginalDir, InstallDir: string; I, Before, Date: Integer;
   function AddEditor(const Path: string): TTestEditor;
   begin
     Result := TTestEditor.Create; Result.Path := Path; Result.Dirty := True;
@@ -182,10 +189,39 @@ begin
   Window.Editors := Editors.Items; Editors.Window := Window;
   SourceEditorManagerIntf := Editors;
   Project := TTestProject.Create(nil); Project.Root := Root;
+  Project.InfoFile := IncludeTrailingPathDelimiter(Root) + 'fixture.lpi';
   IDE := TTestIDE.Create(nil); IDE.Project := Project; IDE.Editors := Editors;
   Manager := TAgentPluginManager.Create; Paths := TStringList.Create;
   LazMessageWorker := @IDE.UnexpectedMessage; LazQuestionWorker := @IDE.UnexpectedQuestion;
   try
+    { Project discovery must not inherit the Lazarus process directory. }
+    InstallDir := IncludeTrailingPathDelimiter(Root) + 'lazarus';
+    ForceDirectories(InstallDir);
+    OriginalDir := GetCurrentDir;
+    Check(SetCurrentDir(InstallDir), 'Could not set IDE process directory fixture');
+    try
+      Project.InfoFile := IncludeTrailingPathDelimiter(Root) + 'fixture.lpi';
+      Project.ProjectDir := '';
+      Check(CompareFilenames(GetActiveLazarusProjectDirectory, Root) = 0,
+        'Absolute project filename did not set the active project directory');
+      Project.InfoFile := 'fixture.lpi';
+      Project.ProjectDir := Root;
+      Check(CompareFilenames(GetActiveLazarusProjectDirectory, Root) = 0,
+        'Relative project filename was not resolved against the project directory');
+      Project.InfoFile := '';
+      Check(CompareFilenames(GetActiveLazarusProjectDirectory, Root) = 0,
+        'Project directory fallback failed');
+      Project.InfoFile := IncludeTrailingPathDelimiter(InstallDir) + 'lazarus.lpi';
+      Project.ProjectDir := InstallDir;
+      ProjectEditor := AddEditor(IncludeTrailingPathDelimiter(Root) + 'working.pas');
+      Editors.Active := ProjectEditor;
+      Check(CompareFilenames(GetActiveLazarusProjectDirectory, Root) = 0,
+        'Active editor did not override the IDE working directory');
+    finally
+      Check(SetCurrentDir(OriginalDir), 'Could not restore IDE process directory');
+    end;
+    Project.InfoFile := IncludeTrailingPathDelimiter(Root) + 'fixture.lpi';
+    Project.ProjectDir := Root;
     UnitEditor := AddEditor(Root + '/unit.pas');
     Dual := AddEditor(UnitEditor.Path);
     Unrelated := AddEditor(Root + '/unrelated.pas');

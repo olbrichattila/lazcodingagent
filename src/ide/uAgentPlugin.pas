@@ -28,6 +28,7 @@ type
       Buttons: TMsgDlgButtons; const HelpKeyword: string = ''): Integer;
     function SilentQuestion(const ACaption, AMsg: string; DlgType: TMsgDlgType;
       Buttons: array of const; const HelpKeyword: string = ''): Integer;
+    function ProjectContextChanged(Sender: TObject; AProject: TLazProject): TModalResult;
   public
     function RefreshIDEFiles(AChangedFiles: TStrings; const AProjectRoot: string): string;
     function RefreshCommandFiles(const AProjectRoot: string; ABeforeCommand: Boolean): string;
@@ -38,6 +39,7 @@ type
   end;
 
 procedure Register;
+function GetActiveLazarusProjectDirectory: string;
 
 implementation
 
@@ -53,8 +55,6 @@ begin
   while (Length(Result) > 1) and ((Result[Length(Result)] = '/') or (Result[Length(Result)] = '\')) do
     Delete(Result, Length(Result), 1);
 end;
-
-function GetLazarusProjectDirectory: string; forward;
 
 function InProject(const APath, ARoot: string): Boolean;
 var P, R: string;
@@ -147,7 +147,7 @@ begin
     Result := 'The Lazarus IDE is unavailable; changed open files could not be refreshed.';
     Exit;
   end;
-  if CompareFilenames(GetLazarusProjectDirectory, AProjectRoot) <> 0 then Exit;
+  if CompareFilenames(GetActiveLazarusProjectDirectory, AProjectRoot) <> 0 then Exit;
   if CompareFilenames(FDesignerProjectRoot, AProjectRoot) <> 0 then
   begin
     FPendingDesigners.Clear;
@@ -296,7 +296,7 @@ begin
     FCommandFiles.Clear;
     FCommandRoot := AProjectRoot;
     if (not Assigned(SourceEditorManagerIntf)) or
-      (CompareFilenames(GetLazarusProjectDirectory, AProjectRoot) <> 0) then Exit;
+      (CompareFilenames(GetActiveLazarusProjectDirectory, AProjectRoot) <> 0) then Exit;
     FPreviousDiskCheck := LazarusIDE.CheckFilesOnDiskEnabled;
     LazarusIDE.CheckFilesOnDiskEnabled := False;
     FDiskCheckSuspended := True;
@@ -362,10 +362,36 @@ begin
   Result := CurDir;
 end;
 
-function GetLazarusProjectDirectory: string;
+function ResolveProjectLocation(const APath, ABaseDir: string): string;
+var Path, Base: string;
+begin
+  Result := '';
+  if APath = '' then Exit;
+  Path := APath;
+  ForcePathDelims(Path);
+  Base := ABaseDir;
+  if Base <> '' then
+  begin
+    ForcePathDelims(Base);
+    Base := ExpandFileName(Base);
+  end;
+  if not FilenameIsAbsolute(Path) then
+  begin
+    if Base <> '' then Path := IncludeTrailingPathDelimiter(Base) + Path;
+  end;
+  Result := ExpandFileName(Path);
+end;
+
+function GetActiveLazarusProjectDirectory: string;
 var
   Proj: TLazProject;
-  Candidate: string;
+  Candidate, ProjectDir, ProjectFile, MainFile, EditorPath, EditorDir: string;
+  function IsIDEWorkingDirectory(const APath: string): Boolean;
+  begin
+    Result := (APath <> '') and
+      ((CompareFilenames(APath, GetCurrentDir) = 0) or
+       (CompareFilenames(APath, ExtractFileDir(ParamStr(0))) = 0));
+  end;
 begin
   Result := '';
   if Assigned(LazarusIDE) then
@@ -375,12 +401,29 @@ begin
       if Assigned(Proj) then
       begin
         Candidate := '';
-        if Proj.ProjectInfoFile <> '' then
-          Candidate := ExtractFilePath(Proj.ProjectInfoFile)
-        else if Proj.Directory <> '' then
-          Candidate := Proj.Directory
-        else if Assigned(Proj.MainFile) and (Proj.MainFile.Filename <> '') then
-          Candidate := ExtractFilePath(Proj.MainFile.Filename);
+        ProjectDir := Proj.Directory;
+        ProjectFile := Proj.ProjectInfoFile;
+
+        { Lazarus can expose a relative project filename on Windows. Resolve it
+          against the active project's own directory before consulting process
+          current-directory state, which may be the Lazarus installation. }
+        if ProjectFile <> '' then
+        begin
+          if FilenameIsAbsolute(ProjectFile) then
+            Candidate := ExtractFilePath(ResolveProjectLocation(ProjectFile, ''))
+          else if ProjectDir <> '' then
+            Candidate := ExtractFilePath(ResolveProjectLocation(ProjectFile, ProjectDir));
+        end;
+        if ((Candidate = '') or not DirectoryExists(Candidate) or
+            IsIDEWorkingDirectory(Candidate)) and Assigned(Proj.MainFile) then
+        begin
+          MainFile := Proj.MainFile.Filename;
+          if MainFile <> '' then
+            Candidate := ExtractFilePath(ResolveProjectLocation(MainFile, ProjectDir));
+        end;
+        if ((Candidate = '') or not DirectoryExists(Candidate) or
+            IsIDEWorkingDirectory(Candidate)) and (ProjectDir <> '') then
+          Candidate := ResolveProjectLocation(ProjectDir, '');
 
         if (Candidate <> '') and DirectoryExists(Candidate) then
           Result := FindProjectRoot(Candidate);
@@ -389,15 +432,54 @@ begin
       Result := '';
     end;
   end;
+
+  { Some Lazarus sessions have no saved project file, or expose their default
+    project directory as the IDE install directory. In that case the active
+    source editor is a better project-location signal than the IDE CWD. }
+  if Assigned(SourceEditorManagerIntf) and
+     ((Result = '') or not DirectoryExists(Result) or
+      IsIDEWorkingDirectory(Result)) then
+  begin
+    try
+      if SourceEditorManagerIntf.ActiveEditor <> nil then
+      begin
+        EditorPath := SourceEditorManagerIntf.ActiveEditor.FileName;
+        if EditorPath <> '' then
+        begin
+          EditorDir := ExtractFilePath(ExpandFileName(EditorPath));
+          if DirectoryExists(EditorDir) and
+             ((Result = '') or (CompareFilenames(EditorDir, Result) <> 0)) then
+            Result := FindProjectRoot(EditorDir);
+        end;
+      end;
+    except
+      { Keep the project-derived directory when editor state is unavailable. }
+    end;
+  end;
+end;
+
+function TAgentPluginManager.ProjectContextChanged(Sender: TObject;
+  AProject: TLazProject): TModalResult;
+var ProjectDir: string;
+begin
+  Result := mrOk;
+  ProjectDir := GetActiveLazarusProjectDirectory;
+  SetEffectiveProjectDir(ProjectDir);
+  if Assigned(FChatForm) then FChatForm.RefreshProjectDirectoryInfo;
 end;
 
 procedure Register;
 begin
-  GProjectDirProvider := @GetLazarusProjectDirectory;
   if not Assigned(GPluginManager) then
   begin
+    GProjectDirProvider := @GetActiveLazarusProjectDirectory;
     GPluginManager := TAgentPluginManager.Create;
     GPluginManager.RegisterIntegrations;
+    if Assigned(LazarusIDE) then
+    begin
+      LazarusIDE.AddHandlerOnProjectOpened(@GPluginManager.ProjectContextChanged);
+      LazarusIDE.AddHandlerOnProjectClose(@GPluginManager.ProjectContextChanged);
+    end;
   end;
   SetAgentIDERefreshProc(@GPluginManager.RefreshIDEFiles);
   GAgentIDECommandRefreshProc := @GPluginManager.RefreshCommandFiles;
@@ -421,6 +503,11 @@ end;
 
 destructor TAgentPluginManager.Destroy;
 begin
+  if Assigned(LazarusIDE) then
+  begin
+    LazarusIDE.RemoveHandlerOnProjectOpened(@ProjectContextChanged);
+    LazarusIDE.RemoveHandlerOnProjectClose(@ProjectContextChanged);
+  end;
   SetAgentIDERefreshProc(nil);
   GAgentIDECommandRefreshProc := nil;
   if Assigned(FChatForm) then

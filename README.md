@@ -107,6 +107,10 @@ package or standalone application.
 
 ## Configuration & Usage
 
+The chat uses Windows WinHTTP (with the Windows Schannel TLS implementation) on
+Windows, so the Lazarus plugin does not require separate OpenSSL DLLs. Linux
+continues to use Free Pascal's `fphttpclient` and OpenSSL sockets support.
+
 1. **Configure LLM & Models in Settings (⚙)**:
    - Click the gear icon (**⚙**) in the chat toolbar to open the tabbed Settings dialog:
      - **Providers & Models Tab**:
