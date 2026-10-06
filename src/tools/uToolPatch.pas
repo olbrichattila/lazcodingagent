@@ -21,7 +21,7 @@ type
     destructor Destroy; override;
   end;
 destructor TStagedEdit.Destroy;
-begin if TempPath <> '' then DeleteFile(TempPath); inherited Destroy; end;
+begin if TempPath <> '' then SysUtils.DeleteFile(TempPath); inherited Destroy; end;
 
 procedure SplitLines(const S: RawByteString; Lines, Endings: TStrings);
 var I, Start: Integer; E: string;
@@ -58,7 +58,7 @@ begin
   ResolveProjectPath(Edit.Path);
   if not ForceDirectories(ExtractFileDir(Edit.Path)) then raise Exception.Create('Cannot create patch parent directory');
   ResolveProjectPath(Edit.Path);
-  Edit.TempPath := GetTempFileName(ExtractFileDir(Edit.Path), '.agent-patch-');
+  Edit.TempPath := SysUtils.GetTempFileName(ExtractFileDir(Edit.Path), '.agent-patch-');
   WriteBytes(Edit.TempPath, Edit.Content);
   {$IFDEF UNIX}
   if not Edit.CreateFile and (fpStat(Edit.Path, Info) = 0) then
@@ -94,7 +94,7 @@ begin
         if ToolCancelled then raise Exception.Create('Tool cancelled');
         E := TStagedEdit(Edits[I]); ResolveProjectPath(E.Path);
         if E.Remove then
-        begin if not DeleteFile(E.Path) then raise Exception.Create('Cannot delete ' + E.Path); end
+        begin if not SysUtils.DeleteFile(E.Path) then raise Exception.Create('Cannot delete ' + E.Path); end
         else
         begin
           {$IFDEF WINDOWS}
@@ -171,7 +171,9 @@ begin
       Text := E.Original; BOM := '';
       if Copy(Text, 1, 3) = #239#187#191 then begin BOM := Copy(Text, 1, 3); Delete(Text, 1, 3); end;
       SplitLines(Text, Lines, Endings); Cursor := 0; HunkCount := 0;
-      EOL := LineEnding;
+      { Unified diffs use LF for new files; existing files below retain their
+        first observed line ending. }
+      EOL := #10;
       for J := 0 to Endings.Count-1 do if Endings[J] <> '' then begin EOL := Endings[J]; Break; end;
       while (I < Patch.Count) and (Copy(Patch[I], 1, 2) = '@@') do
       begin

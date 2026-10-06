@@ -15,17 +15,28 @@ implementation
 uses {$IFDEF UNIX}BaseUnix{$ELSE}Windows{$ENDIF};
 
 function CanonicalPath(const Path: string; Depth: Integer): string;
-var Parts: TStringList; I: Integer; Cur, Link, Tail: string;
+var Parts: TStringList; I: Integer; Cur, Link, Tail, Drive, Remainder: string;
 begin
   if Depth > 32 then raise Exception.Create('Too many symbolic links');
   Result := ExpandFileName(Path);
   Parts := TStringList.Create;
   try
     Parts.StrictDelimiter := True; Parts.Delimiter := DirectorySeparator;
-    Parts.DelimitedText := Result;
-    {$IFDEF UNIX}Cur := '/';{$ELSE}Cur := Parts[0] + DirectorySeparator;{$ENDIF}
-    for I := 1 to Parts.Count - 1 do
+    {$IFDEF UNIX}
+    Cur := '/';
+    Remainder := Copy(Result, 2, MaxInt);
+    {$ELSE}
+    { ExtractFileDrive also returns the server/share portion for UNC paths.
+      Using it as the prefix preserves the double leading separator. }
+    Drive := ExtractFileDrive(Result);
+    if Drive = '' then raise Exception.Create('Cannot resolve absolute path: ' + Path);
+    Cur := IncludeTrailingPathDelimiter(Drive);
+    Remainder := Copy(Result, Length(Drive) + 1, MaxInt);
+    {$ENDIF}
+    Parts.DelimitedText := Remainder;
+    for I := 0 to Parts.Count - 1 do
     begin
+      if Parts[I] = '' then Continue;
       Cur := IncludeTrailingPathDelimiter(Cur) + Parts[I];
       {$IFDEF UNIX}
       Link := fpReadLink(Cur);
@@ -171,7 +182,7 @@ begin
       end
       else Files.Add(StringReplace(Rel, DirectorySeparator, '/', [rfReplaceAll]));
     until FindNext(R) <> 0;
-  finally FindClose(R); end;
+  finally SysUtils.FindClose(R); end;
 end;
 
 function SuccessFile(const Path: string; Bytes: Int64): string;

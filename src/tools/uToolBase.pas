@@ -73,7 +73,7 @@ type
     property Tools: TToolList read FTools;
   end;
 
-function SafeToolText(const S: RawByteString; MaxBytes: Integer = MaxInt): string;
+function SafeToolText(const S: RawByteString; MaxBytes: Integer = MaxInt): UTF8String;
 function ToolError(const AMessage: string): string;
 function ParseToolArgs(const S: string): TJSONObject;
 function CurrentToolContext: TToolContext;
@@ -333,7 +333,7 @@ end;
 
 { Preserve valid UTF-8 and replace invalid/truncated byte sequences in command output.
   JSON transported to an LLM must remain UTF-8 even when a command prints binary bytes. }
-function SafeToolText(const S: RawByteString; MaxBytes: Integer): string;
+function SafeToolText(const S: RawByteString; MaxBytes: Integer): UTF8String;
 var I, J, N, W, B, SecondMin, SecondMax: Integer;
 begin
   SetLength(Result, Min(Int64(Length(S))*3, Int64(MaxBytes)));

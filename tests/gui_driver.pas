@@ -1,6 +1,6 @@
 program gui_driver;
 {$mode objfpc}{$H+}
-uses cthreads, Interfaces, Forms, ExtCtrls, Classes, SysUtils, fpjson,
+uses {$IFDEF UNIX}cthreads,{$ENDIF} Interfaces, Forms, ExtCtrls, Classes, SysUtils, fpjson,
   uAgentTypes, uAgentConfig, uToolBase, uFrmChat, uFrmPlanResult, uMarkdownView;
 type
   TChatAccess = class(TFrmChat)

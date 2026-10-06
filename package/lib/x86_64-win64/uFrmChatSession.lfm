@@ -1,0 +1,172 @@
+object FrmChatSession: TFrmChatSession
+  Left = 350
+  Height = 600
+  Top = 150
+  Width = 700
+  ClientHeight = 600
+  ClientWidth = 700
+  LCLVersion = '2.2.0.0'
+  object PnlTop: TPanel
+    Left = 0
+    Height = 44
+    Top = 0
+    Width = 700
+    Align = alTop
+    BevelOuter = bvNone
+    ClientHeight = 44
+    ClientWidth = 700
+    TabOrder = 0
+    object LblMode: TLabel
+      Left = 10
+      Height = 17
+      Top = 14
+      Width = 38
+      Caption = 'Mode:'
+      ParentColor = False
+    end
+    object CmbMode: TComboBox
+      Left = 52
+      Height = 28
+      Top = 8
+      Width = 80
+      ItemHeight = 0
+      Items.Strings = (
+        'Ask'
+        'Plan'
+        'Agent'
+      )
+      OnChange = CmbModeChange
+      Style = csDropDownList
+      TabOrder = 0
+    end
+    object LblModel: TLabel
+      Left = 142
+      Height = 17
+      Top = 14
+      Width = 40
+      Caption = 'Model:'
+      ParentColor = False
+    end
+    object CmbModel: TComboBox
+      Left = 188
+      Height = 28
+      Top = 8
+      Width = 370
+      Anchors = [akTop, akLeft, akRight]
+      ItemHeight = 0
+      OnChange = CmbModelChange
+      Style = csDropDownList
+      TabOrder = 1
+    end
+    object BtnClear: TButton
+      Left = 568
+      Height = 28
+      Top = 8
+      Width = 36
+      Anchors = [akTop, akRight]
+      Caption = '🗑'
+      Hint = 'Clear Chat History'
+      OnClick = BtnClearClick
+      ShowHint = True
+      TabOrder = 2
+    end
+    object BtnSettings: TButton
+      Left = 610
+      Height = 28
+      Top = 8
+      Width = 36
+      Anchors = [akTop, akRight]
+      Caption = '⚙'
+      Hint = 'Settings'
+      OnClick = BtnSettingsClick
+      ShowHint = True
+      TabOrder = 3
+    end
+    object BtnHelp: TButton
+      Left = 652
+      Height = 28
+      Top = 8
+      Width = 36
+      Anchors = [akTop, akRight]
+      Caption = '?'
+      Hint = 'Help & Overview'
+      OnClick = BtnHelpClick
+      ShowHint = True
+      TabOrder = 4
+    end
+  end
+  object PnlChatHistory: TPanel
+    Left = 0
+    Height = 436
+    Top = 44
+    Width = 700
+    Align = alClient
+    BevelOuter = bvNone
+    TabOrder = 1
+  end
+  object PnlBottom: TPanel
+    Left = 0
+    Height = 120
+    Top = 480
+    Width = 700
+    Align = alBottom
+    BevelOuter = bvNone
+    ClientHeight = 120
+    ClientWidth = 700
+    TabOrder = 2
+    object MemInput: TMemo
+      Left = 8
+      Height = 76
+      Top = 6
+      Width = 590
+      Anchors = [akTop, akLeft, akRight, akBottom]
+      OnChange = MemInputChange
+      OnKeyDown = MemInputKeyDown
+      ScrollBars = ssAutoVertical
+      TabOrder = 0
+    end
+    object BtnSend: TButton
+      Left = 606
+      Height = 76
+      Top = 6
+      Width = 86
+      Anchors = [akTop, akRight, akBottom]
+      Caption = 'Send'
+      Default = True
+      OnClick = BtnSendClick
+      TabOrder = 1
+    end
+    object BtnStop: TButton
+      Left = 606
+      Height = 76
+      Top = 6
+      Width = 86
+      Anchors = [akTop, akRight, akBottom]
+      Caption = 'Stop'
+      OnClick = BtnStopClick
+      TabOrder = 2
+      Visible = False
+    end
+    object LblStatus: TLabel
+      Left = 10
+      Height = 17
+      Top = 92
+      Width = 85
+      Anchors = [akLeft, akBottom]
+      Caption = 'Status: Ready'
+      ParentColor = False
+    end
+    object LblProjectDir: TLabel
+      Left = 140
+      Height = 17
+      Top = 92
+      Width = 450
+      Anchors = [akLeft, akRight, akBottom]
+      Caption = '📁 Project: (Detecting...)'
+      Font.Color = clGrayText
+      ParentColor = False
+      ParentFont = False
+      ShowHint = True
+    end
+  end
+end

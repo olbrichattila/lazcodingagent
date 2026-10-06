@@ -4,6 +4,10 @@ uses {$IFDEF UNIX}cthreads, BaseUnix,{$ENDIF} {$IFDEF WINDOWS}Windows,{$ENDIF}
   Interfaces, Forms, Controls, Classes, SysUtils, Types, Dialogs, LCLType,
   SrcEditorIntf, LazIDEIntf, ProjectIntf, LazMsgWorker, CodeToolManager,
   uAgentPlugin;
+{$IFDEF WINDOWS}
+function WinCreateSymbolicLink(LinkName, TargetName: PChar; Flags: DWORD): BOOL; stdcall;
+  external 'kernel32.dll' name 'CreateSymbolicLinkA';
+{$ENDIF}
 type
   TTestEditor = class(TSourceEditorInterface)
   public
@@ -199,8 +203,8 @@ begin
     {$IFDEF UNIX}
     Check(fpSymlink(PChar(Root + '/../external'), PChar(Root + '/linked')) = 0, 'Cannot prepare symlink fixture');
     {$ELSE}
-    Check(CreateSymbolicLink(PChar(IncludeTrailingPathDelimiter(Root) + 'linked'),
-      PChar(ExpandFileName(IncludeTrailingPathDelimiter(Root) + '..' + DirectorySeparator + 'external')), 1) <> 0,
+    Check(WinCreateSymbolicLink(PChar(IncludeTrailingPathDelimiter(Root) + 'linked'),
+      PChar(ExpandFileName(IncludeTrailingPathDelimiter(Root) + '..' + DirectorySeparator + 'external')), 1),
       'Cannot prepare reparse-point fixture; enable Windows Developer Mode or run as administrator');
     {$ENDIF}
     Linked := AddEditor(Root + '/linked/escaped.pas');

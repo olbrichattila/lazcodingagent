@@ -93,7 +93,7 @@ def run(driver):
                 for mode,scenario in [('Ask','readonly'),('Plan','readonly'),('Ask','diagnostic_denied'),('Plan','fallback'),('Agent','edit'),('Agent','exhaust')]:
                     (root/'unit.pas').write_text('old\n')
                     start=len(Handler.requests)
-                    p=subprocess.run([driver,str(root),endpoint,mode,method,scenario],env=env,text=True,capture_output=True,timeout=15)
+                    p=subprocess.run([driver,str(root),endpoint,mode,method,scenario],env=env,text=True,encoding='utf-8',capture_output=True,timeout=15)
                     assert p.returncode==0, p.stderr
                     result=json.loads(p.stdout)
                     requests=Handler.requests[start:]
@@ -102,7 +102,7 @@ def run(driver):
                     expected = readonly if mode == 'Ask' else readonly | {'create_plan_file'}
                     if mode == 'Agent': expected |= {'write_file','apply_patch','shell'}
                     for request in requests:
-                        prompt = request['messages'][0]['content']
+                        prompt = request['messages'][0]['content'].replace('\r\n', '\n')
                         assert f'Active Mode: {mode}\n' in prompt
                         functions = {t['function']['name']: t['function'] for t in request['tools']}
                         guidance = {}
@@ -116,7 +116,7 @@ def run(driver):
                             assert description == functions[name]['description']
                             assert schema == functions[name]['parameters']
                         if mode == 'Plan':
-                            assert f'Only create .md files inside {root}/.plan/, using create_plan_file.' in prompt
+                            assert f'Only create .md files inside {root / ".plan"}{os.sep}, using create_plan_file.' in prompt
                             assert 'Do not modify other project files.' in prompt
                             assert 'Shell commands and compiler builds are unavailable.' in prompt
                     names={t['function']['name'] for t in requests[0]['tools']}

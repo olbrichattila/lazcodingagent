@@ -24,7 +24,7 @@ end;
 function TObserver.IsCancelled: Boolean;
 begin Result := Cancelled; end;
 var C: TToolContext; Observer: TObserver; O: TJSONObject;
-  A, B, Patch, Root: string;
+  A, B, Patch, Root: string; Files: TStringList;
   procedure Execute(const Name, JSON: string; ExpectError: Boolean = False);
   begin
     O := ParseToolArgs(GetToolRegistry.ExecuteTool(Name, JSON, C));
@@ -44,12 +44,36 @@ var C: TToolContext; Observer: TObserver; O: TJSONObject;
   end;
 begin
   Root := IncludeTrailingPathDelimiter(ParamStr(1));
+  SetEffectiveProjectDir(Root);
   C := Default(TToolContext); C.Mode := amAgent; C.ProjectRoot := Root;
+  Check(ResolveProjectPath('') = ExcludeTrailingPathDelimiter(ExpandFileName(Root)),
+    'Project root did not canonicalize');
+  Check(ResolveProjectPath('relative.txt') = ExpandFileName(Root + 'relative.txt'),
+    'Relative project path did not resolve');
+  try
+    ResolveProjectPath('..' + DirectorySeparator + 'outside.txt');
+    raise Exception.Create('Parent traversal escaped project confinement');
+  except on E: Exception do
+    if Pos('Path escapes', E.Message) = 0 then raise;
+  end;
+  {$IFDEF WINDOWS}
+  try
+    ResolveProjectPath('\\server\share\outside.txt');
+    raise Exception.Create('UNC path escaped project confinement');
+  except on E: Exception do
+    if Pos('Path escapes', E.Message) = 0 then raise;
+  end;
+  {$ENDIF}
   Observer := TObserver.Create; Observer.Paths := TStringList.Create;
   C.OnFileChanged := @Observer.Changed; C.IsCancelled := @Observer.IsCancelled;
   A := Root + 'a.pas'; B := Root + 'b.pas';
   try
     Execute('write_file', WriteArgs(A, 'old' + #10)); O.Free;
+    Files := TStringList.Create;
+    try
+      CollectFiles(Root, '', True, Files);
+      Check(Files.IndexOf('a.pas') >= 0, 'Recursive file enumeration missed a project file');
+    finally Files.Free; end;
     Check(Observer.Paths.Count = 1, 'Write callback missing');
     Execute('write_file', WriteArgs(A, 'old' + #10)); O.Free;
     Check(Observer.Paths.Count = 2, 'Repeated write notification missing');

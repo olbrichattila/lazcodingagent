@@ -157,7 +157,7 @@ var
             finally Stream.Free; end;
           end;
         until FindNext(R) <> 0;
-      finally FindClose(R); end;
+      finally SysUtils.FindClose(R); end;
     end;
   begin
     try Walk(Root, 0);

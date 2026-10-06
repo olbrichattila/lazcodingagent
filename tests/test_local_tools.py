@@ -15,7 +15,8 @@ def run(driver):
     with tempfile.TemporaryDirectory(prefix='coding-agent-fixtures-') as temporary:
         root = Path(temporary) / 'project'
         root.mkdir()
-        process = subprocess.Popen([driver, str(root)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        process = subprocess.Popen([driver, str(root)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                   text=True, encoding='utf-8')
         def call(tool, args=None, mode='Agent', **extra):
             nonlocal count
             process.stdin.write(json.dumps(dict(tool=tool, args=args or {}, mode=mode, **extra))+'\n')
@@ -219,7 +220,8 @@ def run(driver):
             ok('write_file',{'path':'ok.pas','content':'program ok; begin end.\n'})
             result = ok('diagnostics',{'action':'build','target':'ok.pas'})
             assert result['status']=='success' and result['target'].endswith('ok.pas')
-            assert str(root/'ok') in result['changed_paths']
+            built_executable = root/('ok.exe' if IS_WINDOWS else 'ok')
+            assert str(built_executable) in result['changed_paths']
             assert not (root/'ok.ran').exists()
             assert ok('diagnostics',{'action':'read'},mode='Ask')['target']==result['target']
             ok('write_file',{'path':'bad.pas','content':'program bad; begin MissingIdentifier; end.\n'})
@@ -236,7 +238,7 @@ def run(driver):
             ok('_clear')
             assert ok('todo',{'action':'read'})['items']==[]
             assert ok('diagnostics',{'action':'read'})['status']=='unavailable'
-            isolated = subprocess.run([driver,str(root)], input=json.dumps({'tool':'search_code','args':{'query':'x'}})+'\n'+json.dumps({'tool':'git','args':{'operation':'status'}})+'\n', env={**os.environ,'PATH':'/nonexistent'}, text=True, capture_output=True, timeout=5)
+            isolated = subprocess.run([driver,str(root)], input=json.dumps({'tool':'search_code','args':{'query':'x'}})+'\n'+json.dumps({'tool':'git','args':{'operation':'status'}})+'\n', env={**os.environ,'PATH':'/nonexistent'}, text=True, encoding='utf-8', capture_output=True, timeout=5)
             assert isolated.returncode == 0
             unavailable = [json.loads(line) for line in isolated.stdout.splitlines()]
             assert 'ripgrep' in unavailable[0]['error'] and 'Git' in unavailable[1]['error']

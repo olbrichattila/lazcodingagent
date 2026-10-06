@@ -103,7 +103,9 @@ def run(driver):
                 nonlocal count
                 Handler.requests = []; Handler.summary_count = 0
                 Handler.fail_summary_at = fail; Handler.summary_kind = summary_kind
-                p = subprocess.run([driver,str(root),endpoint,method,json.dumps(steps)],env=env,text=True,capture_output=True,timeout=45)
+                steps_file = root/'steps.json'
+                steps_file.write_text(json.dumps(steps), encoding='utf-8')
+                p = subprocess.run([driver,str(root),endpoint,method,str(steps_file)],env=env,text=True,encoding='utf-8',capture_output=True,timeout=45)
                 assert p.returncode == 0, (p.stdout,p.stderr)
                 assert not re.search(r'[1-9][0-9]* unfreed memory blocks', p.stderr), p.stderr
                 result = json.loads(p.stdout)

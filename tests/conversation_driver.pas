@@ -28,11 +28,17 @@ begin Result := Cancelled; end;
 var Agent: TAgentCore; Observer: TObserver; Worker: TAgentWorkerThread;
   Steps: TJSONData; Step, Output: TJSONObject; Results: TJSONArray;
   Context: TToolContext;
-  Adapter: TChatCompletionsAdapter; I: Integer; Prompt, Response: string; Success: Boolean;
+  Adapter: TChatCompletionsAdapter; I: Integer; Prompt, Response, StepsText: string;
+  StepsFile: TFileStream; Success: Boolean;
 begin
   SetEffectiveProjectDir(ParamStr(1)); Agent := TAgentCore.Create;
   Observer := TObserver.Create; Adapter := TChatCompletionsAdapter.Create;
-  Steps := GetJSON(ParamStr(4)); Results := TJSONArray.Create;
+  StepsFile := TFileStream.Create(ParamStr(4), fmOpenRead or fmShareDenyWrite);
+  try
+    SetLength(StepsText, StepsFile.Size);
+    if Length(StepsText) > 0 then StepsFile.ReadBuffer(StepsText[1], Length(StepsText));
+  finally StepsFile.Free; end;
+  Steps := GetJSON(StepsText); Results := TJSONArray.Create;
   try
     Agent.Config.Provider := lpCustom; Agent.Config.EndpointURL := ParamStr(2);
     Agent.Config.APIKey := ''; Agent.Config.ModelName := 'fixture'; Agent.Mode := amAsk;

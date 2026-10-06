@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CONFIG>
+  <Compiler Value="C:\lazarus\fpc\3.2.2\bin\x86_64-win64\fpc.exe" Date="1556518757"/>
+  <Params Value="-MObjFPC -Scghi -O1 -g -gl -WG -l -vewnhibq -FiC:\Users\Admin\lazcodingagent\app\lib\x86_64-win64 -FuC:\Users\Admin\lazcodingagent\app\ -FuC:\Users\Admin\lazcodingagent\src\core -FuC:\Users\Admin\lazcodingagent\src\llm -FuC:\Users\Admin\lazcodingagent\src\tools -FuC:\Users\Admin\lazcodingagent\src\ui -FuC:\lazarus\components\turbopower_ipro\units\x86_64-win64\win32 -FuC:\lazarus\components\printers\lib\x86_64-win64\win32 -FuC:\lazarus\components\cairocanvas\lib\x86_64-win64\win32 -FuC:\lazarus\lcl\units\x86_64-win64\win32 -FuC:\lazarus\lcl\units\x86_64-win64 -FuC:\lazarus\components\freetype\lib\x86_64-win64 -FuC:\lazarus\components\lazutils\lib\x86_64-win64 -FuC:\lazarus\packager\units\x86_64-win64 -FUC:\Users\Admin\lazcodingagent\app\lib\x86_64-win64\ -FEC:\Users\Admin\lazcodingagent\app\bin\ -oC:\Users\Admin\lazcodingagent\app\bin\standalone_chat.exe -dLCL -dLCLwin32 standalone_chat.lpr"/>
+</CONFIG>

@@ -1,0 +1,55 @@
+object FrmPlanResult: TFrmPlanResult
+  Left = 420
+  Height = 620
+  Top = 180
+  Width = 820
+  Caption = 'Implementation Plan'
+  ClientHeight = 620
+  ClientWidth = 820
+  Position = poScreenCenter
+  LCLVersion = '2.2.0.0'
+  object LblPlanPath: TLabel
+    Height = 28
+    Align = alTop
+    BorderSpacing.Around = 6
+    AutoSize = False
+    Caption = 'Plan file:'
+    ShowHint = True
+  end
+  object PnlPlan: TPanel
+    Height = 550
+    Align = alClient
+    BevelOuter = bvNone
+    TabOrder = 0
+  end
+  object PnlBottom: TPanel
+    Left = 0
+    Height = 42
+    Top = 578
+    Width = 820
+    Align = alBottom
+    BevelOuter = bvNone
+    TabOrder = 1
+    object BtnBuild: TButton
+      Left = 624
+      Height = 30
+      Top = 6
+      Width = 88
+      Anchors = [akTop, akRight]
+      Caption = 'Build'
+      Default = True
+      OnClick = BtnBuildClick
+      TabOrder = 0
+    end
+    object BtnClose: TButton
+      Left = 720
+      Height = 30
+      Top = 6
+      Width = 88
+      Anchors = [akTop, akRight]
+      Caption = 'Close'
+      ModalResult = 2
+      TabOrder = 1
+    end
+  end
+end
