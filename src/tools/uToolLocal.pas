@@ -4,7 +4,7 @@ interface
 uses Classes, SysUtils, uAgentTypes, fpjson, uToolBase;
 procedure RegisterLocalTools;
 implementation
-uses uToolPaths, uToolProcess, uToolPatch, RegExpr, DateUtils;
+uses uToolPaths, uToolProcess, uToolPatch, RegExpr, DateUtils, StrUtils;
 type
   TLocalTool = class(TAgentTool)
     function Execute(const AArgsJSON: string): string; override;
@@ -69,63 +69,131 @@ begin
 end;
 
 function SearchTool(A: TJSONObject): string;
-var Args, Lines, Sorted: TStringList; O, Event, Data, Item, Match: TJSONObject;
-  Matches, Subs: TJSONArray; I, J: Integer; Root, Query, Path, Text: string;
-  Truncated: Boolean;
-begin
-  Root := ResolveProjectPath(A.Get('path', '.')); Query := A.Get('query', '');
-  if Query = '' then raise Exception.Create('query must not be empty');
-  Args := TStringList.Create; Lines := TStringList.Create; Sorted := TStringList.Create; Sorted.OwnsObjects := True; Sorted.CaseSensitive := True;
-  try
-    Args.Add('--json'); Args.Add('--color=never');
-    if not A.Get('regex', False) then Args.Add('--fixed-strings');
-    if A.Get('case_sensitive', True) then Args.Add('--case-sensitive') else Args.Add('--ignore-case');
-    if A.Get('include_hidden', False) then Args.Add('--hidden');
-    if A.Get('glob', '') <> '' then begin Args.Add('--glob'); Args.Add(A.Get('glob', '')); end;
-    Args.Add('--glob'); Args.Add('!**/{node_modules,backup,lib,units,bin,obj,target,dist,__pycache__,venv,.git}/**');
-    Args.Add('-e'); Args.Add(Query); Args.Add('--'); Args.Add(Root);
-    try O := RunToolProcess('rg', Args, CurrentToolContext.ProjectRoot);
-    except on E: Exception do raise Exception.Create('Cannot run ripgrep; install rg and ensure it is on PATH. ' + E.Message); end;
-    try
-      if O.Get('exit_code', 0) > 1 then raise Exception.Create('Search failed: ' + O.Get('stderr', ''));
-      if O.Get('timed_out', False) or O.Get('cancelled', False) then raise Exception.Create('Search timed out or was cancelled');
-      Truncated := O.Get('stdout_truncated', False); Lines.Text := O.Get('stdout', '');
-      for I := 0 to Lines.Count-1 do
+var Files: TStringList; O, Match: TJSONObject; Matches: TJSONArray;
+  I, LineNo, StartAt, MatchPos, K, LineLength, LineCapacity: Integer;
+  Root, SearchRoot, Query, Path, FullPath, LowerQuery, LineText, LowerLine: string;
+  Stream: TFileStream; RawLine: RawByteString; Buffer: array[0..65535] of Byte;
+  N, B: Integer;
+  Regex: TRegExpr; Truncated, IsDirectory, BinaryFile: Boolean;
+  procedure AddMatch(const APath, AText: string; ALine, AColumn: Integer);
+  begin
+    if Matches.Count >= 500 then begin Truncated := True; Exit; end;
+    Match := TJSONObject.Create(['path', APath, 'line', ALine,
+      'column', AColumn, 'text', TrimRight(AText)]);
+    Matches.Add(Match);
+  end;
+  procedure ScanLine(const ALine: RawByteString);
+  begin
+    Inc(LineNo);
+    LineText := SafeToolText(ALine);
+    if not A.Get('regex', False) and not A.Get('case_sensitive', True) then
+      LowerLine := AnsiLowerCase(LineText);
+    if A.Get('regex', False) then
+    begin
+      if Regex.Exec(LineText) then
+      begin
+        repeat
+          if ToolCancelled then raise Exception.Create('Tool cancelled');
+          MatchPos := Regex.MatchPos[0];
+          AddMatch(Path, LineText, LineNo, MatchPos);
+          if Truncated then Exit;
+        until not Regex.ExecNext;
+      end;
+    end
+    else
+    begin
+      StartAt := 1;
+      while StartAt <= Length(LineText) do
       begin
         if ToolCancelled then raise Exception.Create('Tool cancelled');
-        try Event := ParseToolArgs(Lines[I]);
-        except
-          if Truncated and (I = Lines.Count-1) then Break;
-          raise;
+        if A.Get('case_sensitive', True) then
+          K := PosEx(Query, LineText, StartAt)
+        else
+          K := PosEx(LowerQuery, LowerLine, StartAt);
+        if K = 0 then Break;
+        MatchPos := K;
+        AddMatch(Path, LineText, LineNo, MatchPos);
+        if Truncated then Exit;
+        StartAt := MatchPos + Length(Query);
+      end;
+    end;
+  end;
+begin
+  Root := CurrentToolContext.ProjectRoot;
+  SearchRoot := ResolveProjectPath(A.Get('path', '.')); Query := A.Get('query', '');
+  if Query = '' then raise Exception.Create('query must not be empty');
+  Files := TStringList.Create; Files.CaseSensitive := True;
+  Matches := TJSONArray.Create; O := TJSONObject.Create; O.Add('matches', Matches);
+  Regex := nil; Truncated := False;
+  try
+    if A.Get('regex', False) then
+    begin
+      Regex := TRegExpr.Create;
+      Regex.Expression := Query;
+      Regex.ModifierI := not A.Get('case_sensitive', True);
+    end
+    else if not A.Get('case_sensitive', True) then LowerQuery := AnsiLowerCase(Query);
+
+    IsDirectory := DirectoryExists(SearchRoot);
+    if IsDirectory then CollectFiles(SearchRoot, '', A.Get('include_hidden', False), Files)
+    else if FileExists(SearchRoot) then Files.Add(ExtractFileName(SearchRoot))
+    else raise Exception.Create('Search path does not exist: ' + SearchRoot);
+    Files.Sort;
+    for I := 0 to Files.Count-1 do
+    begin
+      if ToolCancelled then raise Exception.Create('Tool cancelled');
+      if IsDirectory then FullPath := IncludeTrailingPathDelimiter(SearchRoot) + Files[I]
+      else FullPath := SearchRoot;
+      Path := StringReplace(ExtractRelativePath(IncludeTrailingPathDelimiter(Root), FullPath),
+        DirectorySeparator, '/', [rfReplaceAll]);
+      if (A.Get('glob', '') <> '') and not GlobMatches(A.Get('glob', ''), Path) then Continue;
+      Stream := TFileStream.Create(FullPath, fmOpenRead or fmShareDenyWrite);
+      try
+        { Ignore binary files, matching ripgrep's default treatment of NUL bytes. }
+        BinaryFile := False;
+        while Stream.Position < Stream.Size do
+        begin
+          if ToolCancelled then raise Exception.Create('Tool cancelled');
+          N := Stream.Read(Buffer, SizeOf(Buffer));
+          for B := 0 to N-1 do if Buffer[B] = 0 then begin BinaryFile := True; Break; end;
+          if BinaryFile then Break;
         end;
-        try
-          if Event.Get('type', '') <> 'match' then Continue;
-          Data := Event.Objects['data'];
-          if Data.Objects['path'].Find('text') = nil then Continue;
-          Path := ResolveProjectPath(Data.Objects['path'].Get('text', ''));
-          Path := ExtractRelativePath(IncludeTrailingPathDelimiter(CurrentToolContext.ProjectRoot), Path);
-          Text := Data.Objects['lines'].Get('text', ''); Subs := Data.Arrays['submatches'];
-          for J := 0 to Subs.Count-1 do
+        if BinaryFile then Continue;
+        Stream.Position := 0; LineNo := 0; RawLine := '';
+        LineLength := 0; LineCapacity := 0;
+        while Stream.Position < Stream.Size do
+        begin
+          if ToolCancelled then raise Exception.Create('Tool cancelled');
+          N := Stream.Read(Buffer, SizeOf(Buffer));
+          for B := 0 to N-1 do
           begin
-            Item := TJSONObject(Subs[J]);
-            Match := TJSONObject.Create(['path', Path, 'line', Data.Get('line_number', 0),
-              'column', Item.Get('start', 0)+1, 'text', TrimRight(Text)]);
-            Sorted.AddObject(Path + #0 + Format('%.10d', [Data.Get('line_number', 0)]) + #0 +
-              Format('%.10d', [Item.Get('start', 0)]), Match);
+            if Buffer[B] = 10 then
+            begin
+              if (LineLength > 0) and (RawLine[LineLength] = #13) then Dec(LineLength);
+              SetLength(RawLine, LineLength); ScanLine(RawLine);
+              SetLength(RawLine, LineCapacity); LineLength := 0;
+              if Truncated then Break;
+            end
+            else
+            begin
+              if LineLength >= LineCapacity then
+              begin
+                if LineCapacity = 0 then LineCapacity := 256 else LineCapacity := LineCapacity * 2;
+                SetLength(RawLine, LineCapacity);
+              end;
+              Inc(LineLength); RawLine[LineLength] := AnsiChar(Buffer[B]);
+            end;
           end;
-        finally Event.Free; end;
-      end;
-    finally O.Free; end;
-    Sorted.Sort; Matches := TJSONArray.Create; O := TJSONObject.Create; O.Add('matches', Matches);
-    try
-      for I := 0 to Sorted.Count-1 do
-      begin
-        if Matches.Count = 500 then begin Truncated := True; Break; end;
-        Matches.Add(TJSONObject(Sorted.Objects[I]).Clone);
-      end;
-      O.Add('total_matches', Matches.Count); O.Add('truncated', Truncated); Result := O.AsJSON;
-    finally O.Free; end;
-  finally Args.Free; Lines.Free; Sorted.Free; end;
+          if Truncated then Break;
+        end;
+        if not Truncated and (LineLength > 0) then
+        begin SetLength(RawLine, LineLength); ScanLine(RawLine); end;
+      finally Stream.Free; end;
+      if Truncated then Break;
+    end;
+    O.Add('total_matches', Matches.Count); O.Add('truncated', Truncated);
+    Result := O.AsJSON;
+  finally Files.Free; Regex.Free; O.Free; end;
 end;
 
 function GitTool(A: TJSONObject): string;
@@ -182,9 +250,18 @@ begin
   else raise Exception.Create('Unsupported build target; use .lpi, .lpk, .pas, or .lpr');
   Args := TStringList.Create; Lines := TStringList.Create; R := TRegExpr.Create; General := TRegExpr.Create;
   try
-    Args.Add(Target); O := RunToolProcess(Exe, Args, C.ProjectRoot, A.Get('timeout_ms', 120000), True);
+    Args.Add(Target);
+    try
+      O := RunToolProcess(Exe, Args, C.ProjectRoot, A.Get('timeout_ms', 120000), True);
+    except
+      on E: Exception do
+        raise Exception.Create('Cannot start ' + Exe + ' for ' + Target +
+          '; check that the matching Free Pascal/Lazarus tools are installed and ' +
+          Exe + ' is available on PATH. Process error: ' + E.Message);
+    end;
     try
       O.Add('project_root', C.ProjectRoot); O.Add('target', Target);
+      O.Add('compiler', Exe);
       O.Add('timestamp', FormatDateTime('yyyy-mm-dd"T"hh:nn:ss"Z"', LocalTimeToUniversal(Now))); O.Add('refresh_project', True);
       Messages := TJSONArray.Create; O.Add('messages', Messages);
       Text := O.Get('stdout', '') + LineEnding + O.Get('stderr', ''); Lines.Text := Text;
@@ -276,9 +353,13 @@ begin
     '{"path":{"type":"string"},"include_hidden":{"type":"boolean"}}', '[]', '', True);
   AddTool('glob', 'Find files by project-relative wildcard pattern (*, ?, **), sorted and capped at 500.',
     '{"pattern":{"type":"string"},"path":{"type":"string"},"include_hidden":{"type":"boolean"}}', '["pattern"]', '', True);
-  AddTool('search_code', 'Search text using ripgrep; returns file, line, byte column and matching text, capped at 500.',
+  AddTool('search_code', 'Search project text natively; supports literal or common regular-expression searches and returns file, line, byte column and matching text, capped at 500.',
     '{"query":{"type":"string"},"path":{"type":"string"},"glob":{"type":"string"},"regex":{"type":"boolean"},"case_sensitive":{"type":"boolean"},"include_hidden":{"type":"boolean"}}', '["query"]', 'grep', True);
-  AddTool('shell', 'Run a command in the project. Default timeout 120000ms, maximum 600000ms; normal OS permissions apply.',
+  {$IFDEF UNIX}
+  AddTool('shell', 'Run a command via /bin/sh -c in the project. Default timeout 120000ms, maximum 600000ms; normal OS permissions apply.',
+  {$ELSE}
+  AddTool('shell', 'Run a command via cmd.exe /C in the project. Default timeout 120000ms, maximum 600000ms; normal OS permissions apply.',
+  {$ENDIF}
     '{"command":{"type":"string"},"cwd":{"type":"string"},"timeout_ms":{"type":"integer"}}', '["command"]', 'terminal', False);
   AddTool('git', 'Inspect Git status, diff, log or show. No mutating operations. limit is 1..100.',
     '{"operation":{"type":"string","enum":["status","diff","log","show"]},"revision":{"type":"string"},"paths":{"type":"array","items":{"type":"string"}},"limit":{"type":"integer"},"staged":{"type":"boolean"}}', '["operation"]', '', True);

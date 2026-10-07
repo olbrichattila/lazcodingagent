@@ -229,18 +229,15 @@ begin
       end;
       FrmChat.BtnClearClick(nil);
       Chat.CheckActivity('shell', Before);
-      Check(Pos('Running shell...', Chat.Transcript) > 0, 'Invalid argument activity failed');
-      Check(Pos('Running shell command:', Chat.Transcript) = 0, 'Invalid command displayed');
+      Check(Chat.Transcript = '', 'Activity was added to the transcript');
     end;
     FrmChat.BtnClearClick(nil);
     Chat.CheckActivity('read_file', '{"path":"unit.pas"}');
-    Check(Pos('Reading unit.pas...', Chat.Transcript) > 0, 'Non-shell activity changed');
+    Check(Chat.Transcript = '', 'Read activity was added to the transcript');
     FrmChat.BtnClearClick(nil);
     Send('gui_commands', 2);
-    Check(Pos(LiteralCommand, Chat.Transcript) > 0, 'Alias/multiline command missing');
-    Check(Pos('printf "second command"; exit 7', Chat.Transcript) >
-      Pos(LiteralCommand, Chat.Transcript), 'Sequential/failed command not retained');
-    HTML := TMarkdownAccess.HTML(Chat.Transcript);
+    Check(Pos('**Activity', Chat.Transcript) = 0, 'Command activity was added to the transcript');
+    HTML := TMarkdownAccess.HTML('`````' + LiteralCommand + '`````');
     Check(Pos('<pre><code>' + #10 + '  cat', HTML) > 0, 'Leading whitespace lost');
     Check(Pos('&lt;script&gt;&quot;quoted&quot; &amp; text&lt;/script&gt;' + #10 +
       '```' + #10 + '````' + #10 + '`literal`' + #10#10 + 'COMMAND' + #10 + '</code></pre>', HTML) > 0,
@@ -256,6 +253,9 @@ begin
     Send('gui_empty', 2);
     Check(Pos('Request done.', Chat.Transcript) > 0, 'Empty response lacked completion');
     Check(Pos('No project files changed.', Chat.Transcript) > 0, 'No-change message missing');
+    Check(Pos('**User [', Chat.Transcript) = 0, 'New user heading included a timestamp');
+    Check(Pos('**Agent (', Chat.Transcript) > 0, 'Agent heading missing');
+    Check(Pos(']**' + LineEnding, Chat.Transcript) = 0, 'New chat heading included a timestamp');
     FrmChat.BtnClearClick(nil);
     PathCount := FileRefreshCount;
     Send('gui_patch', 2);
@@ -265,7 +265,7 @@ begin
     Check(Pos('- unit.pas', Chat.Transcript) > 0, 'Patch file list missing');
     FrmChat.BtnClearClick(nil);
     Send('gui_shell', 2);
-    Check(Pos('printf ''shell\n'' > shell-created', Chat.Transcript) > 0, 'Completed shell command missing');
+    Check(Pos('**Activity', Chat.Transcript) = 0, 'Shell activity was added to the transcript');
     if Paths.IndexOf(ParamStr(1)) < 0 then raise Exception.Create('Missing shell refresh');
     Check(Pos('- shell-created', Chat.Transcript) > 0, 'Shell file list missing');
     Check(Pos('- unit.pas', Chat.Transcript) = 0, 'Prior run changes leaked');

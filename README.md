@@ -209,7 +209,7 @@ preferences. Large eligible prefixes are processed in bounded chronological batc
 System instructions, the two recent turns, and the current turn remain verbatim;
 tool-call/result groups are never split. Context is sent as system instructions,
 a labeled historical summary, and retained messages. Summary progress appears in
-the status bar; the chat transcript remains visible as before.
+the status bar, and the completed summary is added to the visible chat transcript.
 
 Replacement is transactional: every summary batch must succeed and the resulting
 context must fit before old messages are freed. Empty, invalid, cancelled, or failed
@@ -250,7 +250,7 @@ The standalone app and IDE plugin expose the same JSON tool interfaces:
 | `write_file` | `path`, `content` | Create/replace a file, including explicitly empty content. |
 | `list_directory` | optional `path`, `include_hidden` | Immediate entries with file/directory/symlink type and size. |
 | `glob` | `pattern`, optional `path`, `include_hidden` | Project-relative file patterns supporting `*`, `?`, and `**`; path narrows traversal. |
-| `search_code` | `query`, optional `path`, `glob`, `regex`, `case_sensitive`, `include_hidden` | Ripgrep text search with file, line, byte column, and matching text. |
+| `search_code` | `query`, optional `path`, `glob`, `regex`, `case_sensitive`, `include_hidden` | Native Pascal text search with file, line, byte column, and matching text; supports literals and common regular expressions. |
 | `apply_patch` | `patch` | Unified diff creation, modification, and deletion; validates every hunk before writing. |
 | `shell` | `command`, optional `cwd`, `timeout_ms` | Execute through `/bin/sh` on Unix or `cmd.exe` on Windows. |
 | `diagnostics` | `action: read/build`, optional `target`, `timeout_ms` | Read the latest compiler result or build an explicit `.lpi`, `.lpk`, `.pas`, or `.lpr`. |
@@ -279,7 +279,23 @@ Commands default to the project directory, a 120-second timeout, and a 600-secon
 
 Tasks and the latest diagnostic result live in memory for the chat and reset on **Clear Chat**. Cached diagnostics carry the project, target, and UTC timestamp; they are a snapshot rather than live LSP errors. Git errors are returned normally when the project is not a repository; no repository is initialized automatically.
 
-Runtime dependencies: `rg` for search, `git` for Git inspection, `fpc` for Pascal targets, and `lazbuild` for Lazarus projects/packages. Web search, page fetching, browser automation, and LSP connections are deferred.
+Runtime dependencies: `git` for Git inspection, `fpc` for Pascal targets, and `lazbuild` for Lazarus projects/packages. Code search is implemented natively in Pascal and needs no external search executable; regex syntax follows Free Pascal's `RegExpr` unit, so ripgrep-specific syntax is not guaranteed. Web search, page fetching, browser automation, and LSP connections are deferred.
+
+### Tool error kinds and recovery
+
+Failed tools return JSON with an `error` string. `apply_patch` also sets `error_kind` (and often `path` / `line`) so the model can recover without guessing.
+
+| `error_kind` | Typical cause | Recovery |
+| --- | --- | --- |
+| `context_mismatch` | Context or removal line does not match the file | `read_file` the path, copy exact lines, rebuild the hunk |
+| `format` | Not a raw unified diff (Markdown fences, `*** Begin Patch`, missing `---`/`+++`) | Send only `--- a/...`, `+++ b/...`, `@@`, and prefixed hunk lines |
+| `hunk_count_mismatch` | Too many/few ` ` / `-` / `+` lines vs the `@@` old/new counts | Re-count lines; each hunk line must start with space, `-`, or `+` |
+| `incomplete_hunk` | Hunk ended before old/new counts were satisfied | Same as hunk counts; ensure the full hunk body is present |
+| `invalid_hunk` | Bad `@@` header, overlap, or malformed hunk line | Fix hunk headers and positions using current file line numbers |
+| `empty_patch` | No file sections or no hunks | Include at least one `---`/`+++` pair and one `@@` hunk |
+| `patch_apply` | Validation/commit failure (duplicate target, rename, I/O, cancel) | Read the `error` text; on `partial: true`, inspect `changed_paths` |
+
+Other common errors (plain `error`, no `error_kind`): `Path escapes the active project` (use project-relative paths); `old_text must match exactly once` for `edit_file`; `Cannot run Git` / missing `fpc` or `lazbuild` (install and ensure `PATH`); `Tool unavailable in Ask/Plan mode`. For `shell`, use **cmd.exe** syntax on Windows (`&`, `>`, `exit /b`) and **/bin/sh** syntax on Unix/macOS.
 
 ### Adding custom tools
 
@@ -315,11 +331,13 @@ build.bat all
 ```
 
 Windows test runners require native Lazarus/Free Pascal, Python, `git`,
-`rg.exe`, and the TurboPowerIPro and Printer4Lazarus packages. Keep `fpc.exe`
+and the TurboPowerIPro and Printer4Lazarus packages. Keep `fpc.exe`
 and `lazbuild.exe` on `PATH`; set `LAZARUS_DIR` if the scripts cannot find the
 Lazarus installation in the usual locations. GUI and IDE tests default to the
 `win32` widgetset (override with `LCL_WS`) and do not require Xvfb. The Bash
 runners support Linux and macOS; use the batch runners on Windows.
+
+GitHub Actions: macOS jobs run in [`.github/workflows/macos.yml`](.github/workflows/macos.yml). The Windows workflow ([`.github/workflows/windows.yml`](.github/workflows/windows.yml)) is manual (`workflow_dispatch`); enable **Use self-hosted runner** on a Windows machine with the toolchain above. Set repository variables `LAZARUS_DIR` (Lazarus root) and optionally `WINDOWS_SELF_HOSTED_LABEL` (runner label, default `self-hosted`).
 
 ### macOS
 
@@ -336,7 +354,7 @@ from a graphical macOS session:
 ```
 
 The macOS runners require Free Pascal, Lazarus with Cocoa LCL units, Python 3,
-`git`, `rg`, the OpenSSL 3 libraries and command-line tool, `TurboPowerIPro`,
+`git`, the OpenSSL 3 libraries and command-line tool, `TurboPowerIPro`,
 and `Printer4Lazarus`. The GUI tests run directly on macOS and do not use Xvfb
 or Qt's XCB backend. The core test runner also makes a local trusted HTTPS/SSE
 request on macOS to verify that the OpenSSL runtime is loadable.

@@ -5,11 +5,12 @@ unit uWindowsHTTP;
 interface
 
 uses
-  Classes, SysUtils;
+  Classes, SysUtils, uToolBase;
 
 { Uses the Windows HTTP stack (and its native Schannel TLS implementation). }
 procedure WindowsHTTPRequest(const AMethod, AURL: string; AHeaders: TStrings;
-  const ABody: RawByteString; AResponse: TStream; out AStatusCode: Integer);
+  const ABody: RawByteString; AResponse: TStream; out AStatusCode: Integer;
+  AIsCancelled: TToolCancelled = nil);
 
 implementation
 
@@ -123,7 +124,8 @@ begin
 end;
 
 procedure WindowsHTTPRequest(const AMethod, AURL: string; AHeaders: TStrings;
-  const ABody: RawByteString; AResponse: TStream; out AStatusCode: Integer);
+  const ABody: RawByteString; AResponse: TStream; out AStatusCode: Integer;
+  AIsCancelled: TToolCancelled);
 var
   Host, Path, HeaderText: string;
   HostW, PathW, MethodW, HeaderW, AgentW: UnicodeString;
@@ -181,6 +183,8 @@ begin
 
     if Assigned(AResponse) then
       repeat
+        if Assigned(AIsCancelled) and AIsCancelled() then
+          raise Exception.Create('Request cancelled by user');
         BytesRead := 0;
         if not WinHttpReadData(Request, @Buffer[0], SizeOf(Buffer), BytesRead) then
           RaiseLastOSError;
@@ -196,7 +200,8 @@ end;
 {$ELSE}
 
 procedure WindowsHTTPRequest(const AMethod, AURL: string; AHeaders: TStrings;
-  const ABody: RawByteString; AResponse: TStream; out AStatusCode: Integer);
+  const ABody: RawByteString; AResponse: TStream; out AStatusCode: Integer;
+  AIsCancelled: TToolCancelled);
 begin
   AStatusCode := 0;
   raise Exception.Create('Windows HTTP transport is available only on Windows');

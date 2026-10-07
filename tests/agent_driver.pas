@@ -21,6 +21,7 @@ begin
   Changes.Add(TJSONObject.Create(['path', Path, 'completed_tools', Results.Count]));
 end;
 var Agent: TAgentCore; Observer: TObserver; Worker: TAgentWorkerThread; O: TJSONObject;
+  Waits: Integer;
 begin
   SetEffectiveProjectDir(ParamStr(1)); Agent := TAgentCore.Create; Observer := TObserver.Create;
   Observer.Results := TJSONArray.Create;
@@ -36,7 +37,14 @@ begin
       Worker.FreeOnTerminate := False;
       try
         Worker.Start;
-        while not Observer.Done do CheckSynchronize(10);
+        Waits := 0;
+        while not Observer.Done do
+        begin
+          if (ParamCount >= 6) and (ParamStr(6) = 'cancel') and (Waits >= 15) then
+            Worker.Terminate;
+          Inc(Waits);
+          CheckSynchronize(10);
+        end;
         Worker.WaitFor;
       finally Worker.Free; end;
     end

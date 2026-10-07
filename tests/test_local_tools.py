@@ -119,6 +119,8 @@ def run(driver):
             entries = ok('list_directory')['entries']
             assert any(e['path']=='src' and e['type']=='directory' for e in entries)
             assert [e['path'] for e in entries] == sorted(e['path'] for e in entries)
+            ok('write_file', {'path':'rel/nested/file.txt','content':'relative-write'})
+            assert (root/'rel'/'nested'/'file.txt').read_text() == 'relative-write'
             ok('write_file', {'path':'src/nested/unit.pas','content':'CreateUser\nCreateUser\n'})
             ok('write_file', {'path':'root.pas','content':'createuser\n'})
             ok('write_file', {'path':'.hidden.pas','content':'CreateUser\n'})
@@ -133,6 +135,11 @@ def run(driver):
             assert len(result['matches']) == 2 and result['matches'][0]['column']==1
             assert len(ok('search_code', {'query':'createuser','case_sensitive':False})['matches']) == 3
             assert len(ok('search_code', {'query':'Create.*','regex':True,'glob':'src/**/*.pas'})['matches']) == 2
+            ok('write_file', {'path':'src/multi.txt','content':'needle needle\n'})
+            multi = ok('search_code', {'query':'needle','path':'src','glob':'src/multi.txt'})
+            assert [(m['line'],m['column']) for m in multi['matches']] == [(1,1),(1,8)], multi
+            assert ok('search_code', {'query':'needle','path':'src/multi.txt'})['matches'][0]['path'] == 'src/multi.txt'
+            assert len(ok('search_code', {'query':'CreateUser','include_hidden':True})['matches']) == 4
             assert ok('search_code', {'query':'nothing'})['matches'] == []
             error('search_code', {'query':'[','regex':True})
             for index in range(510):
@@ -143,7 +150,10 @@ def run(driver):
             assert len(result['matches']) == 500 and result['truncated']
             patch('--- a/src/main.pas\n+++ b/src/main.pas\n@@ -1,2 +1,2 @@\n alpha\n-beta\n+gamma\n')
             assert (root/'src/main.pas').read_bytes() == '\ufeffalpha\r\ngamma\r\n'.encode()
-            ok('edit_file',{'path':'src/main.pas','old_text':'gamma','new_text':'delta'})
+            # A UTF-8 BOM, CRLF transport, and a response wrapper must not alter hunk text.
+            patch('Here is the requested change:\r\n\ufeff```diff\r\n--- a/src/main.pas\r\n+++ b/src/main.pas\r\n@@ -2 +2 @@\r\n-gamma\r\n+wrapped\r\n```\r\nThis is ready to apply.\r\n')
+            assert (root/'src/main.pas').read_bytes() == '\ufeffalpha\r\nwrapped\r\n'.encode()
+            ok('edit_file',{'path':'src/main.pas','old_text':'wrapped','new_text':'delta'})
             assert (root/'src/main.pas').read_bytes() == '\ufeffalpha\r\ndelta\r\n'.encode()
             error('edit_file',{'path':'src/nested/unit.pas','old_text':'CreateUser','new_text':'x'})
             original = (root/'src/main.pas').read_bytes()
@@ -153,13 +163,24 @@ def run(driver):
             assert (root/'patch-empty.txt').read_bytes() == b''
             patch('--- /dev/null\n+++ b/new.txt\n@@ -0,0 +1 @@\n+hello\n')
             assert (root/'new.txt').read_bytes()==b'hello\n'
+            patch('The following is the change:\n--- /dev/null\n+++ b/prose-wrapped.txt\n@@ -0,0 +1 @@\n+hello\nApplied successfully.\n')
+            assert (root/'prose-wrapped.txt').read_bytes()==b'hello\n'
             patch('--- a/new.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-hello\n')
             assert not (root/'new.txt').exists()
             (root/'nonewline').write_bytes(b'old')
             patch('--- a/nonewline\n+++ b/nonewline\n@@ -1 +1 @@\n-old\n\\ No newline at end of file\n+new\n\\ No newline at end of file\n')
             assert (root/'nonewline').read_bytes()==b'new'
             error('apply_patch',{'patch':'--- /dev/null\n+++ b/../escape.txt\n@@ -0,0 +1 @@\n+x\n'})
-            error('apply_patch',{'patch':'--- a/root.pas\n+++ b/root.pas\n@@ -1,2 +1 @@\n-createuser\n+new\n'})
+            stale = error('apply_patch',{'patch':'--- a/root.pas\n+++ b/root.pas\n@@ -1,2 +1 @@\n-createuser\n+new\n'})
+            assert 'context mismatch' in stale['error'].lower() and 'reread' in stale['error'].lower(), stale
+            assert stale['error_kind'] == 'context_mismatch' and stale['path'].endswith('root.pas') and stale['line'] == 1, stale
+            bad_format = error('apply_patch',{'patch':'*** Begin Patch\n*** Update File: root.pas\n'})
+            assert 'unsupported patch format' in bad_format['error'].lower(), bad_format
+            assert bad_format['error_kind'] == 'format', bad_format
+            hunk_skew = error('apply_patch', {'patch': '--- a/root.pas\n+++ b/root.pas\n@@ -1,2 +1,1 @@\n createuser\n-old2\n+merged\n+extra\n'})
+            assert hunk_skew['error_kind'] == 'hunk_count_mismatch', hunk_skew
+            incomplete = error('apply_patch', {'patch': '--- a/root.pas\n+++ b/root.pas\n@@ -1,2 +1,1 @@\n createuser\n-onlynew\n'})
+            assert incomplete['error_kind'] == 'incomplete_hunk', incomplete
             # Detect changes without Git, including hidden files and deletion.
             (root/'pre-existing').write_text('already changed')
             (root/'remove-me').write_text('old')
@@ -221,6 +242,7 @@ def run(driver):
             ok('write_file',{'path':'ok.pas','content':'program ok; begin end.\n'})
             result = ok('diagnostics',{'action':'build','target':'ok.pas'})
             assert result['status']=='success' and result['target'].endswith('ok.pas')
+            assert result['compiler'].lower() == 'fpc' and isinstance(result.get('stdout'), str) and isinstance(result.get('stderr'), str)
             built_executable = root/('ok.exe' if IS_WINDOWS else 'ok')
             assert str(built_executable) in result['changed_paths']
             assert not (root/'ok.ran').exists()
@@ -228,6 +250,7 @@ def run(driver):
             ok('write_file',{'path':'bad.pas','content':'program bad; begin MissingIdentifier; end.\n'})
             result = ok('diagnostics',{'action':'build','target':'bad.pas'})
             assert result['status']=='failed' and any(m.get('line')==1 and m['severity']=='error' for m in result['messages'])
+            assert any(m.get('path', '').lower().endswith('bad.pas') for m in result['messages']), result['messages']
             error('diagnostics',{'action':'build'})
             tasks=[{'id':'one','text':'Refactor','status':'in_progress'},{'id':'two','text':'Verify','status':'pending'}]
             assert ok('plan',{'action':'replace','items':tasks},mode='Plan')['items']==tasks
@@ -242,8 +265,9 @@ def run(driver):
             isolated = subprocess.run([driver,str(root)], input=json.dumps({'tool':'search_code','args':{'query':'x'}})+'\n'+json.dumps({'tool':'git','args':{'operation':'status'}})+'\n', env={**os.environ,'PATH':'/nonexistent'}, text=True, encoding='utf-8', capture_output=True, timeout=5)
             assert isolated.returncode == 0
             unavailable = [json.loads(line) for line in isolated.stdout.splitlines()]
-            assert 'ripgrep' in unavailable[0]['error'] and 'Git' in unavailable[1]['error']
-            print(f'Local tool integration tests passed ({count} tool calls plus missing-dependency fixtures).')
+            assert unavailable[0]['matches'] == [] and 'error' not in unavailable[0]
+            assert 'Git' in unavailable[1]['error']
+            print(f'Local tool integration tests passed ({count} tool calls plus native-search dependency fixture).')
         finally:
             process.stdin.close()
             process.wait(timeout=5)

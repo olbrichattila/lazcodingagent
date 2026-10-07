@@ -5,154 +5,159 @@
       <Name Value="lazaruscodingagent"/>
       <Version Minor="1" Build="1"/>
       <Filename Value="C:\Users\Admin\lazcodingagent\package\lazaruscodingagent.lpk"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
+      <LastUsed Value="2026/10/07 09:56:46"/>
     </Item1>
   </UserPkgLinks>
-  <GlobalPkgLinks Version="3" Count="30">
+  <GlobalPkgLinks Version="3" Count="31">
     <Item1>
       <Name Value="buildintf"/>
       <Version Major="1"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
+      <LastUsed Value="2026/10/07 09:56:46"/>
     </Item1>
     <Item2>
       <Name Value="cairocanvas_pkg"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
+      <LastUsed Value="2026/10/07 09:56:46"/>
     </Item2>
     <Item3>
       <Name Value="cmdlinedebuggerbase"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
+      <LastUsed Value="2026/10/07 09:56:46"/>
     </Item3>
     <Item4>
       <Name Value="codetools"/>
       <Version Major="1" Release="1"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
+      <LastUsed Value="2026/10/07 09:56:46"/>
     </Item4>
     <Item5>
       <Name Value="debuggerintf"/>
       <Version Minor="1"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
+      <LastUsed Value="2026/10/07 09:56:46"/>
     </Item5>
     <Item6>
       <Name Value="fcl"/>
       <Version Major="1" Release="1"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
+      <LastUsed Value="2026/10/07 09:56:46"/>
     </Item6>
     <Item7>
       <Name Value="fpdebug"/>
       <Version Major="1"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
+      <LastUsed Value="2026/10/07 09:56:46"/>
     </Item7>
     <Item8>
       <Name Value="freetypelaz"/>
       <Version Major="1"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
+      <LastUsed Value="2026/10/07 09:56:46"/>
     </Item8>
     <Item9>
       <Name Value="ideconfig"/>
       <Version Major="1"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
+      <LastUsed Value="2026/10/07 09:56:46"/>
     </Item9>
     <Item10>
       <Name Value="idedebugger"/>
       <Version Release="1"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
+      <LastUsed Value="2026/10/07 09:56:46"/>
     </Item10>
     <Item11>
       <Name Value="ideintf"/>
       <Version Major="1"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
+      <LastUsed Value="2026/10/07 09:56:46"/>
     </Item11>
     <Item12>
       <Name Value="idepackager"/>
       <Version Major="1"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
+      <LastUsed Value="2026/10/07 09:56:46"/>
     </Item12>
     <Item13>
       <Name Value="ideproject"/>
       <Version Major="1"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
+      <LastUsed Value="2026/10/07 09:56:46"/>
     </Item13>
     <Item14>
       <Name Value="ideutilspkg"/>
       <Version Major="1"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
+      <LastUsed Value="2026/10/07 09:56:46"/>
     </Item14>
     <Item15>
       <Name Value="laz.virtualtreeview_package"/>
       <Version Major="5" Minor="5" Release="3" Build="1"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
+      <LastUsed Value="2026/10/07 09:56:46"/>
     </Item15>
     <Item16>
       <Name Value="lazcontroldsgn"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
+      <LastUsed Value="2026/10/07 09:56:46"/>
     </Item16>
     <Item17>
       <Name Value="lazcontrols"/>
       <Version Major="1" Release="1"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
+      <LastUsed Value="2026/10/07 09:56:46"/>
     </Item17>
     <Item18>
       <Name Value="lazdebuggerfp"/>
       <Version Major="1"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
+      <LastUsed Value="2026/10/07 09:56:46"/>
     </Item18>
     <Item19>
       <Name Value="lazdebuggerfplldb"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
+      <LastUsed Value="2026/10/07 09:56:46"/>
     </Item19>
     <Item20>
       <Name Value="lazdebuggergdbmi"/>
       <Version Minor="1"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
+      <LastUsed Value="2026/10/07 09:56:46"/>
     </Item20>
     <Item21>
       <Name Value="lazdebuggerintf"/>
       <Version Release="1"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
+      <LastUsed Value="2026/10/07 09:56:46"/>
     </Item21>
     <Item22>
       <Name Value="lazdebuggerlldb"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
+      <LastUsed Value="2026/10/07 09:56:46"/>
     </Item22>
     <Item23>
       <Name Value="lazedit"/>
       <Version Major="1"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
+      <LastUsed Value="2026/10/07 09:56:46"/>
     </Item23>
     <Item24>
       <Name Value="lazutils"/>
       <Version Major="1"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
+      <LastUsed Value="2026/10/07 09:56:46"/>
     </Item24>
     <Item25>
       <Name Value="lcl"/>
       <Version Major="4" Minor="8"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
+      <LastUsed Value="2026/10/07 09:56:46"/>
     </Item25>
     <Item26>
       <Name Value="lclbase"/>
       <Version Major="4" Minor="8"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
+      <LastUsed Value="2026/10/07 09:56:46"/>
     </Item26>
     <Item27>
       <Name Value="lclextensions_package"/>
       <Version Minor="6" Release="1"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
+      <LastUsed Value="2026/10/07 09:56:46"/>
     </Item27>
     <Item28>
       <Name Value="printer4lazarus"/>
       <Version Minor="5"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
+      <LastUsed Value="2026/10/07 09:56:46"/>
     </Item28>
     <Item29>
       <Name Value="synedit"/>
       <Version Major="1"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
+      <LastUsed Value="2026/10/07 09:56:46"/>
     </Item29>
     <Item30>
+      <Name Value="syneditdsgn"/>
+      <Version Major="1"/>
+      <LastUsed Value="2026/10/07 09:24:11"/>
+    </Item30>
+    <Item31>
       <Name Value="turbopoweripro"/>
       <Version Major="1"/>
-      <LastUsed Value="2026/10/06 12:07:39"/>
-    </Item30>
+      <LastUsed Value="2026/10/07 09:56:46"/>
+    </Item31>
   </GlobalPkgLinks>
 </CONFIG>

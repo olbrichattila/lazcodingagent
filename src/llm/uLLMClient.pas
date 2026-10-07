@@ -30,9 +30,11 @@ type
     FAccumulatedToolName: string;
     FAccumulatedToolArgs: string;
     FHasToolCall: Boolean;
+    FIsCancelled: TToolCancelled;
     procedure ProcessLine(const ALine: string);
+    procedure CheckCancelled;
   public
-    constructor Create(AOnChunk: TSSEChunkEvent);
+    constructor Create(AOnChunk: TSSEChunkEvent; AIsCancelled: TToolCancelled = nil);
     function Write(const Buffer; Count: Longint): Longint; override;
     function Read(var Buffer; Count: Longint): Longint; override;
     function Seek(Offset: Longint; Origin: Word): Longint; override;
@@ -64,11 +66,12 @@ type
     function SendResponse(AHistory: TAgentHistory; AMode: TAgentMode;
       AStream, AEnableTools: Boolean; AOnChunk: TSSEChunkEvent;
       out AMessage: TChatMessage; out AError: string;
-      const AProjectRoot: string = ''): Boolean;
+      const AProjectRoot: string = ''; AIsCancelled: TToolCancelled = nil): Boolean;
     { Takes ownership of AMessages. No conversation mutations. }
     function RequestResponse(AMessages: TJSONArray; AStream, AEnableTools: Boolean;
       AMode: TAgentMode; AOnChunk: TSSEChunkEvent; AMaxTokens: Integer;
-      out AMessage: TChatMessage; out AError: string): Boolean;
+      out AMessage: TChatMessage; out AError: string;
+      AIsCancelled: TToolCancelled = nil): Boolean;
     property Adapter: TLLMAdapter read FAdapter;
     function SendChat(AHistory: TAgentHistory; AMode: TAgentMode; out AResponseText: string): Boolean; overload;
     function SendChat(AHistory: TAgentHistory; AMode: TAgentMode; AEnableTools: Boolean;
@@ -88,10 +91,11 @@ const
 
 { TSSEStream }
 
-constructor TSSEStream.Create(AOnChunk: TSSEChunkEvent);
+constructor TSSEStream.Create(AOnChunk: TSSEChunkEvent; AIsCancelled: TToolCancelled);
 begin
   inherited Create;
   FOnChunk := AOnChunk;
+  FIsCancelled := AIsCancelled;
   FCalls := TAgentToolCalls.Create(True);
   FBuffer := '';
   FAccumulatedContent := '';
@@ -100,6 +104,12 @@ begin
   FAccumulatedToolName := '';
   FAccumulatedToolArgs := '';
   FHasToolCall := False;
+end;
+
+procedure TSSEStream.CheckCancelled;
+begin
+  if Assigned(FIsCancelled) and FIsCancelled() then
+    raise Exception.Create('Request cancelled by user');
 end;
 
 function TSSEStream.Write(const Buffer; Count: Longint): Longint;
@@ -111,6 +121,7 @@ var
 begin
   Result := Count;
   if Count <= 0 then Exit;
+  CheckCancelled;
 
   P := @Buffer;
   SetString(Chunk, P, Count);
@@ -367,6 +378,15 @@ begin
         'Instructions:' + LineEnding +
         '- For project tasks, always inspect the actual files with list_directory/glob/search_code/read_file before making claims or changes; do not guess at file contents.' + LineEnding +
         '- Implement the user request fully using the available project tools.' + LineEnding +
+        '- If apply_patch reports a context mismatch, reread the affected file and retry with exact current lines; never guess or use fuzzy context.' + LineEnding +
+        '- The apply_patch patch argument contains only a raw unified diff: --- a/file.pas, +++ b/file.pas, @@ -1 +1 @@, -old, +new on separate lines. Do not include prose, Markdown fences, or *** Begin Patch markers.' + LineEnding +
+        '- If apply_patch returns hunk_count_mismatch or incomplete_hunk, recount the @@ old/new line counts: every hunk line must start with space, -, or +; blank lines are invalid.' + LineEnding +
+        {$IFDEF UNIX}
+        '- For shell, use /bin/sh syntax (&&, ;, $?, etc.).' + LineEnding +
+        {$ELSE}
+        '- For shell, use cmd.exe syntax (&, >, exit /b, etc.).' + LineEnding +
+        {$ENDIF}
+        '- When diagnostics cannot start fpc or lazbuild, explain the missing dependency/PATH requirement. When a build fails, use its preserved stdout/stderr and parsed messages to diagnose the failure.' + LineEnding +
         '- Output clean, robust Free Pascal code compatible with the Lazarus Component Library (LCL).' + LineEnding +
         '- Work systematically step by step until the user task is fully resolved.' + LineEnding +
         '- Finish with a short summary of what was accomplished and any checks actually performed. State unfinished work or failures clearly.';
@@ -460,7 +480,8 @@ end;
 
 function TLLMClient.SendResponse(AHistory: TAgentHistory; AMode: TAgentMode;
   AStream, AEnableTools: Boolean; AOnChunk: TSSEChunkEvent;
-  out AMessage: TChatMessage; out AError: string; const AProjectRoot: string): Boolean;
+  out AMessage: TChatMessage; out AError: string; const AProjectRoot: string;
+  AIsCancelled: TToolCancelled): Boolean;
 var Snapshot: TAgentHistory;
 begin
   Result := False; AMessage := nil; AError := ''; Snapshot := nil;
@@ -468,14 +489,14 @@ begin
     try
       Snapshot := AHistory.Clone;
       Result := RequestResponse(FAdapter.Messages(Snapshot, BuildSystemPrompt(AMode, AProjectRoot)),
-        AStream, AEnableTools, AMode, AOnChunk, 0, AMessage, AError);
+        AStream, AEnableTools, AMode, AOnChunk, 0, AMessage, AError, AIsCancelled);
     except on E: Exception do AError := 'LLM context error: ' + E.Message; end;
   finally Snapshot.Free; end;
 end;
 
 function TLLMClient.RequestResponse(AMessages: TJSONArray; AStream, AEnableTools: Boolean;
   AMode: TAgentMode; AOnChunk: TSSEChunkEvent; AMaxTokens: Integer;
-  out AMessage: TChatMessage; out AError: string): Boolean;
+  out AMessage: TChatMessage; out AError: string; AIsCancelled: TToolCancelled): Boolean;
 var Req: TJSONObject; Tools: TJSONArray;
   {$IFNDEF MSWINDOWS}Client: TFPHTTPClient; Input: TRawByteStringStream;{$ENDIF}
   {$IFDEF MSWINDOWS}Headers: TStringList;{$ENDIF}
@@ -504,7 +525,7 @@ begin
   Output := nil; SSE := nil;
   try
     Output := TStringStream.Create('');
-    SSE := TSSEStream.Create(AOnChunk);
+    SSE := TSSEStream.Create(AOnChunk, AIsCancelled);
     {$IFNDEF MSWINDOWS}
     Input := TRawByteStringStream.Create(Body);
     Client.AllowRedirect := True;
@@ -526,9 +547,9 @@ begin
       Status := Client.ResponseStatusCode;
       {$ELSE}
       if AStream then
-        WindowsHTTPRequest('POST', FConfig.EndpointURL, Headers, RawByteString(Body), SSE, Status)
+        WindowsHTTPRequest('POST', FConfig.EndpointURL, Headers, RawByteString(Body), SSE, Status, AIsCancelled)
       else
-        WindowsHTTPRequest('POST', FConfig.EndpointURL, Headers, RawByteString(Body), Output, Status);
+        WindowsHTTPRequest('POST', FConfig.EndpointURL, Headers, RawByteString(Body), Output, Status, AIsCancelled);
       {$ENDIF}
       if Status >= 400 then
       begin
@@ -552,7 +573,10 @@ begin
     except on E: Exception do
       begin
         FreeAndNil(AMessage);
-        AError := 'LLM request failed: ' + E.Message;
+        if SameText(E.Message, 'Request cancelled by user') then
+          AError := E.Message
+        else
+          AError := 'LLM request failed: ' + E.Message;
         if AStream and (SSE <> nil) and (SSE.ReceivedData <> '') then
         begin
           Diagnostic := SanitizedStreamTail(SSE.ReceivedData);

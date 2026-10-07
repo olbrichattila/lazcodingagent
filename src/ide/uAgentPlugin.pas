@@ -5,23 +5,32 @@ unit uAgentPlugin;
 interface
 
 uses
-  Classes, SysUtils, Forms, Controls, Dialogs, Menus, LCLType,
+  Classes, SysUtils, Contnrs, Forms, Controls, Dialogs, Menus, LCLType,
   LazIDEIntf, ProjectIntf, MenuIntf, IDEWindowIntf, IDECommands, ToolBarIntf,
   SrcEditorIntf, CodeToolManager, LazFileCache, LazFileUtils, LazMsgWorker, MD5,
   uToolBase, uToolPaths, uFrmChat;
 
 type
+  TCommandRefreshScope = class
+  public
+    ProjectRoot: string;
+    Files: TStringList;
+    constructor Create(const AProjectRoot: string);
+    destructor Destroy; override;
+  end;
+
   { TAgentPluginManager }
   TAgentPluginManager = class
   private
     FChatForm: TFrmChat;
     FToggleCommand: TIDECommand;
-    FCommandFiles: TStringList;
+    FCommandScopes: TObjectList;
     FPendingDesigners: TStringList;
     FDesignerProjectRoot: string;
-    FCommandRoot: string;
     FReloadMessages: string;
     FDiskCheckSuspended, FPreviousDiskCheck: Boolean;
+    procedure RememberCommandFile(AScope: TCommandRefreshScope; const APath: string);
+    procedure UpdateCommandSnapshot(const APath: string);
     procedure CreateAgentForm(Sender: TObject; aFormName: string;
       var AForm: TCustomForm; DoDisableAutoSizing: boolean);
     function SilentMessage(const ACaption, AMsg: string; DlgType: TMsgDlgType;
@@ -261,8 +270,7 @@ begin
         FPendingDesigners.Delete(FPendingDesigners.IndexOf(UnitPath));
       { The per-file callback already consumed this change. Do not reload it
         a second time when the enclosing tool completes. }
-      if FCommandFiles.IndexOfName(Path) >= 0 then
-        FCommandFiles.Values[Path] := DiskFingerprint(Path);
+      UpdateCommandSnapshot(Path);
     except on Ex: Exception do
       Result := Result + 'Could not reload ' + Path + ': ' + Ex.Message + LineEnding;
     end;
@@ -278,56 +286,91 @@ begin
   Result := Trim(Result + FReloadMessages);
 end;
 
+procedure TAgentPluginManager.RememberCommandFile(AScope: TCommandRefreshScope; const APath: string);
+begin
+  if (AScope = nil) or (AScope.Files = nil) then Exit;
+  if InProject(APath, AScope.ProjectRoot) and (AScope.Files.IndexOfName(APath) < 0) then
+    AScope.Files.Add(APath + #9 + DiskFingerprint(APath));
+end;
+
+procedure TAgentPluginManager.UpdateCommandSnapshot(const APath: string);
+var I: Integer; Scope: TCommandRefreshScope;
+begin
+  for I := FCommandScopes.Count - 1 downto 0 do
+  begin
+    Scope := TCommandRefreshScope(FCommandScopes[I]);
+    if Scope.Files.IndexOfName(APath) >= 0 then
+      Scope.Files.Values[APath] := DiskFingerprint(APath);
+  end;
+end;
+
+constructor TCommandRefreshScope.Create(const AProjectRoot: string);
+begin
+  inherited Create;
+  ProjectRoot := AProjectRoot;
+  Files := TStringList.Create;
+  Files.NameValueSeparator := #9;
+  Files.CaseSensitive := {$IFDEF WINDOWS}False{$ELSE}True{$ENDIF};
+end;
+
+destructor TCommandRefreshScope.Destroy;
+begin
+  Files.Free;
+  inherited Destroy;
+end;
+
 function TAgentPluginManager.RefreshCommandFiles(const AProjectRoot: string;
   ABeforeCommand: Boolean): string;
-var I: Integer; E: TSourceEditorInterface; Path: string; Changed: TStringList;
-  procedure Remember(const APath: string);
-  begin
-    if InProject(APath, AProjectRoot) and (FCommandFiles.IndexOfName(APath) < 0) then
-      FCommandFiles.Add(APath + #9 + DiskFingerprint(APath));
-  end;
+var I, ScopeIndex: Integer; E: TSourceEditorInterface; Path: string;
+  Changed: TStringList; Scope: TCommandRefreshScope;
 begin
   Result := '';
   if ABeforeCommand then
   begin
-    if FDiskCheckSuspended and Assigned(LazarusIDE) then
-      LazarusIDE.CheckFilesOnDiskEnabled := FPreviousDiskCheck;
-    FDiskCheckSuspended := False;
-    FCommandFiles.Clear;
-    FCommandRoot := AProjectRoot;
     if (not Assigned(SourceEditorManagerIntf)) or
       (CompareFilenames(GetActiveLazarusProjectDirectory, AProjectRoot) <> 0) then Exit;
-    FPreviousDiskCheck := LazarusIDE.CheckFilesOnDiskEnabled;
-    LazarusIDE.CheckFilesOnDiskEnabled := False;
-    FDiskCheckSuspended := True;
+    Scope := TCommandRefreshScope.Create(AProjectRoot);
+    FCommandScopes.Add(Scope);
+    if (FCommandScopes.Count = 1) and Assigned(LazarusIDE) then
+    begin
+      FPreviousDiskCheck := LazarusIDE.CheckFilesOnDiskEnabled;
+      LazarusIDE.CheckFilesOnDiskEnabled := False;
+      FDiskCheckSuspended := True;
+    end;
     for I := 0 to SourceEditorManagerIntf.UniqueSourceEditorCount - 1 do
     begin
       E := SourceEditorManagerIntf.UniqueSourceEditors[I];
-      Remember(E.FileName);
+      RememberCommandFile(Scope, E.FileName);
       if (E.GetDesigner(False) <> nil) or (FPendingDesigners.IndexOf(E.FileName) >= 0) then
-        Remember(ResourceForUnit(E.FileName));
+        RememberCommandFile(Scope, ResourceForUnit(E.FileName));
     end;
   end
   else
   begin
+    ScopeIndex := -1;
+    for I := FCommandScopes.Count - 1 downto 0 do
+      if CompareFilenames(TCommandRefreshScope(FCommandScopes[I]).ProjectRoot, AProjectRoot) = 0 then
+      begin ScopeIndex := I; Break; end;
+    if ScopeIndex < 0 then Exit;
+    Scope := TCommandRefreshScope(FCommandScopes[ScopeIndex]);
     Changed := TStringList.Create;
     try
-      if CompareFilenames(FCommandRoot, AProjectRoot) <> 0 then Exit;
-      for I := 0 to FCommandFiles.Count - 1 do
+      for I := 0 to Scope.Files.Count - 1 do
       begin
-        Path := FCommandFiles.Names[I];
+        Path := Scope.Files.Names[I];
         try
-          if DiskFingerprint(Path) <> FCommandFiles.ValueFromIndex[I] then Changed.Add(Path);
+          if DiskFingerprint(Path) <> Scope.Files.ValueFromIndex[I] then Changed.Add(Path);
         except on Ex: Exception do Result := Result + Path + ': ' + Ex.Message + LineEnding; end;
       end;
       Result := Trim(Result + RefreshIDEFiles(Changed, AProjectRoot));
     finally
       Changed.Free;
-      FCommandFiles.Clear;
-      FCommandRoot := '';
-      if FDiskCheckSuspended and Assigned(LazarusIDE) then
+      FCommandScopes.Delete(ScopeIndex);
+      if (FCommandScopes.Count = 0) and FDiskCheckSuspended and Assigned(LazarusIDE) then
+      begin
         LazarusIDE.CheckFilesOnDiskEnabled := FPreviousDiskCheck;
-      FDiskCheckSuspended := False;
+        FDiskCheckSuspended := False;
+      end;
     end;
   end;
 end;
@@ -492,11 +535,9 @@ begin
   inherited Create;
   FChatForm := nil;
   FToggleCommand := nil;
-  FCommandFiles := TStringList.Create;
-  FCommandFiles.NameValueSeparator := #9;
-  FCommandFiles.CaseSensitive := {$IFDEF WINDOWS}False{$ELSE}True{$ENDIF};
+  FCommandScopes := TObjectList.Create(True);
   FPendingDesigners := TStringList.Create;
-  FPendingDesigners.CaseSensitive := FCommandFiles.CaseSensitive;
+  FPendingDesigners.CaseSensitive := {$IFDEF WINDOWS}False{$ELSE}True{$ENDIF};
   FPendingDesigners.Sorted := True;
   FPendingDesigners.Duplicates := dupIgnore;
 end;
@@ -514,7 +555,7 @@ begin
     FreeAndNil(FChatForm);
   if FDiskCheckSuspended and Assigned(LazarusIDE) then
     LazarusIDE.CheckFilesOnDiskEnabled := FPreviousDiskCheck;
-  FCommandFiles.Free;
+  FCommandScopes.Free;
   FPendingDesigners.Free;
   inherited Destroy;
 end;

@@ -1,0 +1,37 @@
+name: Windows
+
+# Core tests only. GitHub-hosted windows-latest does not ship Lazarus/Free Pascal.
+# Option A: workflow_dispatch with "Use self-hosted runner" and a Windows self-hosted
+#   runner that has fpc, lazbuild, Python, and git on PATH (or set repository variable
+#   LAZARUS_DIR to your Lazarus install root).
+# Option B: set repository variable WINDOWS_SELF_HOSTED_LABEL (e.g. self-hosted-win)
+#   and enable use_self_hosted so runs-on targets that label instead of windows-latest.
+on:
+  workflow_dispatch:
+    inputs:
+      use_self_hosted:
+        description: Run on a self-hosted Windows runner (required for real test execution)
+        type: boolean
+        default: false
+
+jobs:
+  windows-core-tests:
+    name: Windows core tests
+    runs-on: ${{ github.event.inputs.use_self_hosted == 'true' && (vars.WINDOWS_SELF_HOSTED_LABEL || 'self-hosted') || 'windows-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify toolchain
+        shell: cmd
+        env:
+          LAZARUS_DIR: ${{ vars.LAZARUS_DIR }}
+        run: |
+          if not defined LAZARUS_DIR echo Note: set repository variable LAZARUS_DIR if tests cannot find Lazarus.
+          where fpc >nul 2>&1 || (echo fpc not on PATH — install Free Pascal or set LAZARUS_DIR & exit /b 1)
+          where python >nul 2>&1 || (echo python not on PATH & exit /b 1)
+
+      - name: Run core tests
+        shell: cmd
+        env:
+          LAZARUS_DIR: ${{ vars.LAZARUS_DIR }}
+        run: tests\run_tests.bat

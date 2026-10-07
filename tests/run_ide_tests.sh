@@ -24,7 +24,7 @@ cat > "$TEST_OUTPUT/ide_reload.lpi" <<XML
   </CompilerOptions>
 </CONFIG>
 XML
-lazbuild --lazarusdir="$LAZARUS_DIR" --ws="$LCL_WS" "$TEST_OUTPUT/ide_reload.lpi" >"$TEST_OUTPUT/build.log" 2>&1 || { rg "Error:|Fatal:" "$TEST_OUTPUT/build.log"; exit 1; }
+lazbuild --lazarusdir="$LAZARUS_DIR" --ws="$LCL_WS" "$TEST_OUTPUT/ide_reload.lpi" >"$TEST_OUTPUT/build.log" 2>&1 || { grep -E "Error:|Fatal:" "$TEST_OUTPUT/build.log"; exit 1; }
 mkdir "$TEST_OUTPUT/project"
 if [ "$TEST_HOST_OS" = "Darwin" ]; then
   "$TEST_OUTPUT/ide_reload" "$TEST_OUTPUT/project"

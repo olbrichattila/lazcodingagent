@@ -130,11 +130,20 @@ end;
 procedure TAgentWorkerThread.SyncProgress;
 begin if Assigned(FOnProgress) then FOnProgress(FSyncProgress); end;
 procedure TAgentWorkerThread.HandleProgress(const AText: string);
-begin FSyncProgress := AText; Synchronize(@SyncProgress); end;
+begin
+  if Terminated then Exit;
+  FSyncProgress := AText; Synchronize(@SyncProgress);
+end;
 procedure TAgentWorkerThread.HandleToolExecuting(const AName, AData: string);
-begin FSyncToolName := AName; FSyncToolData := AData; Synchronize(@SyncToolExecuting); end;
+begin
+  if Terminated then Exit;
+  FSyncToolName := AName; FSyncToolData := AData; Synchronize(@SyncToolExecuting);
+end;
 procedure TAgentWorkerThread.HandleToolCompleted(const AName, AData: string);
-begin FSyncToolName := AName; FSyncToolData := AData; Synchronize(@SyncToolCompleted); end;
+begin
+  if Terminated then Exit;
+  FSyncToolName := AName; FSyncToolData := AData; Synchronize(@SyncToolCompleted);
+end;
 
 procedure TAgentWorkerThread.Execute;
 var Context: TToolContext;

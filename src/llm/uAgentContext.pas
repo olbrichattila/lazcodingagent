@@ -107,7 +107,8 @@ begin
         end;
         if Transcript = '' then raise EContextSize.Create('An indivisible older turn exceeds the summary request budget');
         Messages := SummaryMessages(Transcript);
-        if not AClient.RequestResponse(Messages, False, False, AMode, nil, 2048, Response, AError) then
+        if not AClient.RequestResponse(Messages, False, False, AMode, nil, 2048, Response, AError,
+          ACancelled) then
           raise Exception.Create(AError);
         try
           if Cancelled then raise Exception.Create('Request cancelled by user');
@@ -124,6 +125,7 @@ begin
       if Cancelled then raise Exception.Create('Request cancelled by user');
       AHistory.ReplacePrefix(Prefix, Summary);
       AHistory.EstimatedInputTokens := InputSize;
+      if Assigned(AProgress) then AProgress('Context summary ready:' + LineEnding + Summary);
       Result := True;
     except on E: Exception do
       begin

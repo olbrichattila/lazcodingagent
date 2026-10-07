@@ -34,6 +34,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
         elif scenario=='exhaust': tool=('todo',{'action':'read'})
         elif scenario=='gui_patch':
             if not tool_messages: tool=('apply_patch',{'patch':'--- a/unit.pas\n+++ b/unit.pas\n@@ -1 +1 @@\n-old\n+new\n'})
+        elif scenario=='patch_retry':
+            if not tool_messages:
+                tool=('apply_patch',{'patch':'--- a/unit.pas\n+++ b/unit.pas\n@@ -1 +1 @@\n-stale\n+new\n'})
+            elif len(tool_messages)==1:
+                tool=('read_file',{'path':'unit.pas'})
+            elif len(tool_messages)==2:
+                tool=('apply_patch',{'patch':'Here is the corrected patch:\n```diff\n--- a/unit.pas\n+++ b/unit.pas\n@@ -1 +1 @@\n-old\n+new\n```\n'})
         elif scenario=='gui_shell':
             if not tool_messages: tool=('shell',{'command':"printf 'shell\\n' > shell-created"})
         elif scenario=='gui_commands':
@@ -66,6 +73,19 @@ class Handler(http.server.BaseHTTPRequestHandler):
             if not tool_messages: tool=('edit_file',{'path':'unit.pas','old_text':'new','new_text':'built'})
         elif scenario=='gui_slow':
             if not tool_messages: tool=('shell',{'command':'touch running; sleep 10'})
+        elif scenario=='cancel_stream':
+            if payload.get('stream'):
+                self.send_response(200)
+                self.send_header('Content-Type', 'text/event-stream')
+                self.end_headers()
+                for _ in range(80):
+                    time.sleep(0.05)
+                    part = json.dumps({'choices': [{'delta': {'content': 'x'}}]})
+                    self.wfile.write(('data: ' + part + '\n\n').encode())
+                    self.wfile.flush()
+                self.wfile.write(b'data: [DONE]\n\n')
+                return
+            content = 'cancel_stream requires streaming'
         else: raise AssertionError(scenario)
         if tool:
             function={'name':tool[0],'arguments':json.dumps(tool[1])}
@@ -96,7 +116,7 @@ def run(driver):
             (rules/'a.md').write_text('First project rule.')
             env={**os.environ,'XDG_CONFIG_HOME':str(Path(temporary)/'config')}
             for method in ('sync','thread'):
-                for mode,scenario in [('Ask','readonly'),('Plan','readonly'),('Ask','diagnostic_denied'),('Plan','fallback'),('Agent','edit'),('Agent','exhaust')]:
+                for mode,scenario in [('Ask','readonly'),('Plan','readonly'),('Ask','diagnostic_denied'),('Plan','fallback'),('Agent','edit'),('Agent','patch_retry'),('Agent','exhaust')]:
                     (root/'unit.pas').write_text('old\n')
                     start=len(Handler.requests)
                     p=subprocess.run([driver,str(root),endpoint,mode,method,scenario],env=env,text=True,encoding='utf-8',capture_output=True,timeout=15)
@@ -140,10 +160,26 @@ def run(driver):
                         assert result['success'] and (root/'unit.pas').read_text()=='new\n'
                         assert result['results'][0]['result']['changed_paths']==[str(root/'unit.pas')]
                         assert result['changes']==[{'path':str(root/'unit.pas'),'completed_tools':0}]
+                    elif scenario=='patch_retry':
+                        assert result['success'] and (root/'unit.pas').read_text()=='new\n', result
+                        assert [entry['name'] for entry in result['results']] == ['apply_patch','read_file','apply_patch'], result
+                        assert result['results'][0]['result']['error_kind'] == 'context_mismatch', result
+                        assert result['results'][2]['result']['status'] == 'success', result
                     elif scenario=='exhaust':
                         assert not result['success'] and 'iteration limit' in result['response'] and len(requests)==50
                     scenarios+=1
             print(f'Agent loop tests passed ({scenarios} synchronous/worker scenarios).')
+            (root/'unit.pas').write_text('old\n')
+            start = time.time()
+            cancel = subprocess.run(
+                [driver, str(root), endpoint, 'Ask', 'thread', 'cancel_stream', 'cancel'],
+                env=env, text=True, encoding='utf-8', capture_output=True, timeout=15)
+            assert cancel.returncode == 0, cancel.stderr
+            cancel_result = json.loads(cancel.stdout)
+            assert not cancel_result['success'], cancel_result
+            assert 'cancelled' in cancel_result['response'].lower(), cancel_result
+            assert time.time() - start < 5, 'Cancelled stream did not stop promptly'
+            print('Streaming cancellation test passed.')
     finally:
         server.shutdown(); server.server_close(); worker.join()
 

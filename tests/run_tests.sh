@@ -14,7 +14,7 @@ fpc "${FLAGS[@]}" tests/test_agent_rules.pas >"$TEST_OUTPUT/rules-build.log" 2>&
 fpc "${FLAGS[@]}" -gh tests/test_conversation.pas >"$TEST_OUTPUT/conversation-build.log" 2>&1 || { cat "$TEST_OUTPUT/conversation-build.log"; exit 1; }
 fpc "${FLAGS[@]}" -gh tests/conversation_driver.pas >"$TEST_OUTPUT/history-build.log" 2>&1 || { cat "$TEST_OUTPUT/history-build.log"; exit 1; }
 XDG_CONFIG_HOME="$TEST_OUTPUT/config" "$TEST_OUTPUT/test_conversation" 2>"$TEST_OUTPUT/heap.log"
-if rg -q '[1-9][0-9]* unfreed memory blocks' "$TEST_OUTPUT/heap.log"; then cat "$TEST_OUTPUT/heap.log"; exit 1; fi
+if grep -Eq '[1-9][0-9]* unfreed memory blocks' "$TEST_OUTPUT/heap.log"; then cat "$TEST_OUTPUT/heap.log"; exit 1; fi
 python3 tests/test_conversation_context.py "$TEST_OUTPUT/conversation_driver"
 "$TEST_OUTPUT/test_file_notifications" "$TEST_OUTPUT"
 "$TEST_OUTPUT/test_agent_rules" "$TEST_OUTPUT/project-rules"

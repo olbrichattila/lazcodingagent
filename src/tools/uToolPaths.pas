@@ -14,6 +14,25 @@ function SuccessFile(const Path: string; Bytes: Int64): string;
 implementation
 uses {$IFDEF UNIX}BaseUnix{$ELSE}Windows{$ENDIF};
 
+function JoinPathSegments(const Prefix, Suffix: string): string;
+begin
+  if Suffix = '' then Exit(Prefix);
+  if (Suffix[1] = '/') then Exit(Suffix);
+  Result := IncludeTrailingPathDelimiter(Prefix) + Suffix;
+end;
+
+function RemainingPathParts(Parts: TStringList; StartIndex: Integer): string;
+var I: Integer;
+begin
+  Result := '';
+  for I := StartIndex to Parts.Count - 1 do
+  begin
+    if Parts[I] = '' then Continue;
+    if Result = '' then Result := Parts[I]
+    else Result := Result + DirectorySeparator + Parts[I];
+  end;
+end;
+
 function CanonicalPath(const Path: string; Depth: Integer): string;
 var Parts: TStringList; I: Integer; Cur, Link, Tail, Drive, Remainder: string;
 begin
@@ -43,8 +62,8 @@ begin
       if Link <> '' then
       begin
         if Link[1] <> '/' then Link := IncludeTrailingPathDelimiter(ExtractFileDir(Cur)) + Link;
-        Tail := ''; if I < Parts.Count - 1 then Tail := Copy(Result, Length(Cur) + 1, MaxInt);
-        Exit(CanonicalPath(Link + Tail, Depth + 1));
+        Tail := RemainingPathParts(Parts, I + 1);
+        Exit(CanonicalPath(JoinPathSegments(Link, Tail), Depth + 1));
       end;
       {$ELSE}
       if (GetFileAttributes(PChar(Cur)) <> INVALID_FILE_ATTRIBUTES) and
@@ -104,16 +123,16 @@ begin
 end;
 
 procedure WriteBytes(const Path: string; const Content: RawByteString);
-var S: TFileStream;
+var S: TFileStream; Resolved: string;
   {$IFDEF UNIX}Info: Stat;{$ENDIF}
 begin
-  ResolveProjectPath(Path);
+  Resolved := ResolveProjectPath(Path);
   {$IFDEF UNIX}
-  if (fpStat(Path, Info) = 0) and not FPS_ISREG(Info.st_mode) then raise Exception.Create('Not a regular file: ' + Path);
+  if (fpStat(Resolved, Info) = 0) and not FPS_ISREG(Info.st_mode) then
+    raise Exception.Create('Not a regular file: ' + Path);
   {$ENDIF}
-  if not ForceDirectories(ExtractFileDir(Path)) then raise Exception.Create('Cannot create parent directories');
-  ResolveProjectPath(Path);
-  S := TFileStream.Create(Path, fmCreate);
+  if not ForceDirectories(ExtractFileDir(Resolved)) then raise Exception.Create('Cannot create parent directories');
+  S := TFileStream.Create(Resolved, fmCreate);
   try if Length(Content) > 0 then S.WriteBuffer(Content[1], Length(Content)); finally S.Free; end;
 end;
 

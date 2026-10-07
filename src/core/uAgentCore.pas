@@ -125,7 +125,7 @@ begin
           FEstimator, AContext.IsCancelled, AProgress, AResponse, AContext.ProjectRoot) then Exit;
         if Assigned(AProgress) then AProgress('Thinking...');
         if not FLLMClient.SendResponse(FHistory, AContext.Mode, AStreaming, True,
-          AOnChunk, Response, AResponse, AContext.ProjectRoot) then Exit;
+          AOnChunk, Response, AResponse, AContext.ProjectRoot, AContext.IsCancelled) then Exit;
         try
           if Cancelled then begin AResponse := 'Request cancelled by user.'; Exit; end;
           AResponse := Response.Content;

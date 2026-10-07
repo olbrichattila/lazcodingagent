@@ -60,7 +60,10 @@ type
     FTitle: string;
     FContextSnapshot: TJSONObject;
     FRefreshingModelList: Boolean;
+    FBlockedByOtherSession: Boolean;
+    FPlanDialogOpen: Boolean;
     procedure Changed;
+    procedure UpdateSendAvailability;
     procedure RefreshContextSnapshot;
     procedure HandleWorkerProgress(const AText: string);
     function GetTabCaption: string;
@@ -91,6 +94,7 @@ type
     procedure MarkInterrupted;
     procedure StopRun;
     procedure SetSharedSettingsEnabled(AEnabled: Boolean);
+    procedure SetSharedRunBlocked(ABlocked: Boolean);
     procedure SynchronizeSharedModel;
     procedure RefreshProjectDirectoryInfo;
     property IsRunning: Boolean read GetIsRunning;
@@ -148,6 +152,8 @@ begin
   FRefreshTargets.CaseSensitive := FAgentChangedFiles.CaseSensitive;
   FRefreshTargets.Duplicates := dupIgnore;
   FRefreshTargets.Sorted := True;
+  FBlockedByOtherSession := False;
+  FPlanDialogOpen := False;
   FRunMode := amAsk;
   FHistoryMarkdown := '';
   FChatView := TMarkdownView.Create(Self);
@@ -288,6 +294,7 @@ end;
 
 procedure TFrmChatSession.BtnClearClick(Sender: TObject);
 begin
+  if FPlanDialogOpen then Exit;
   StopRun;
 
   FHistoryMarkdown := '';
@@ -312,11 +319,29 @@ begin
   end;
 end;
 
+procedure TFrmChatSession.UpdateSendAvailability;
+begin
+  if BtnSend.Visible then
+    BtnSend.Enabled := (not Assigned(FWorkerThread)) and (not FBlockedByOtherSession) and
+      (not FPlanDialogOpen);
+end;
+
+procedure TFrmChatSession.SetSharedRunBlocked(ABlocked: Boolean);
+begin
+  if FBlockedByOtherSession = ABlocked then Exit;
+  FBlockedByOtherSession := ABlocked;
+  UpdateSendAvailability;
+  if ABlocked and not Assigned(FWorkerThread) then
+    UpdateStatus('Another chat is running.')
+  else if not Assigned(FWorkerThread) and not FPlanDialogOpen then
+    UpdateStatus('Ready');
+end;
+
 procedure TFrmChatSession.BtnSendClick(Sender: TObject);
 var
   Prompt: string;
 begin
-  if Assigned(FWorkerThread) then
+  if Assigned(FWorkerThread) or FBlockedByOtherSession or FPlanDialogOpen then
     Exit;
 
   Prompt := Trim(MemInput.Text);
@@ -430,7 +455,6 @@ begin
         Fence + LineEnding + Command + LineEnding + Fence;
     end;
   end;
-  AppendToHistory('Activity', Activity);
 end;
 
 function TFrmChatSession.DescribeToolActivity(const AToolName, AToolArgs: string): string;
@@ -630,10 +654,10 @@ begin
   FRefreshTargets.Clear;
   BtnStop.Visible := False;
   BtnSend.Visible := True;
-  BtnSend.Enabled := True;
   CmbMode.Enabled := True;
   CmbModel.Enabled := True;
   BtnSettings.Enabled := True;
+  UpdateSendAvailability;
 
   RawText := AFinalText;
   if ASuccess and (RawText = '') then RawText := FContentBuffer;
@@ -708,6 +732,9 @@ begin
   begin
     SavedPlanPath := FPlanFilePath;
     SavedPlanContent := FPlanFileContent;
+    FPlanDialogOpen := True;
+    UpdateSendAvailability;
+    BtnClear.Enabled := False;
     PlanForm := TFrmPlanResult.Create(Self);
     try
       PlanForm.LoadPlan(SavedPlanPath, SavedPlanContent);
@@ -719,9 +746,17 @@ begin
           '. First inspect the project files, then carry out the plan completely.' +
           LineEnding + LineEnding + SavedPlanContent;
         MemInput.Text := BuildPrompt;
+        FPlanDialogOpen := False;
+        BtnClear.Enabled := True;
+        UpdateSendAvailability;
         BtnSendClick(BtnSend);
       end;
-    finally PlanForm.Free; end;
+    finally
+      PlanForm.Free;
+      FPlanDialogOpen := False;
+      BtnClear.Enabled := True;
+      UpdateSendAvailability;
+    end;
   end;
   Changed;
 end;
@@ -745,8 +780,8 @@ procedure TFrmChatSession.AppendToHistory(const ARole, AText: string);
 begin
   if FHistoryMarkdown <> '' then
     FHistoryMarkdown := FHistoryMarkdown + LineEnding + LineEnding;
-  FHistoryMarkdown := FHistoryMarkdown + '**' + ARole + ' [' +
-    FormatDateTime('hh:nn:ss', Now) + ']**' + LineEnding + LineEnding + AText;
+  FHistoryMarkdown := FHistoryMarkdown + '**' + ARole + '**' +
+    LineEnding + LineEnding + AText;
   FChatView.SetMarkdown(FHistoryMarkdown);
   Changed;
   Application.QueueAsyncCall(@ScrollChatToBottom, 0);
@@ -1037,7 +1072,8 @@ begin
   if FWorkerThread = Worker then FWorkerThread := nil;
   Worker.Free;
   BtnStop.Visible := False; BtnSend.Visible := True;
-  BtnSend.Enabled := True; CmbMode.Enabled := True;
+  UpdateSendAvailability;
+  CmbMode.Enabled := True;
   UpdateStatus('Stopped');
 end;
 
@@ -1075,9 +1111,15 @@ begin
 end;
 
 procedure TFrmChatSession.HandleWorkerProgress(const AText: string);
+const SummaryMarker = 'Context summary ready:';
 begin
   RefreshContextSnapshot;
-  UpdateStatus(AText);
+  if Copy(AText, 1, Length(SummaryMarker)) = SummaryMarker then
+  begin
+    AppendToHistory('Context Summary', Trim(Copy(AText, Length(SummaryMarker) + 1, MaxInt)));
+    UpdateStatus('Context summarized');
+  end
+  else UpdateStatus(AText);
 end;
 
 end.

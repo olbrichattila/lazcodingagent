@@ -278,6 +278,19 @@ begin
     IDE.CheckFilesOnDiskEnabled := False; Manager.RefreshCommandFiles(Root, True);
     Manager.RefreshCommandFiles(Root, False);
     Check(not IDE.CheckFilesOnDiskEnabled, 'Previously disabled disk check was enabled');
+    Manager.RefreshCommandFiles(Root, True);
+    Manager.RefreshCommandFiles(Root, True);
+    Save(UnitEditor.Path, 'overlap-inner');
+    Before := IDE.Reloads;
+    Manager.RefreshCommandFiles(Root, False);
+    Check((IDE.Reloads = Before + 1) and (UnitEditor.Text = 'overlap-inner'),
+      'Inner stacked command refresh did not reload');
+    Save(UnitEditor.Path, 'overlap-outer');
+    Before := IDE.Reloads;
+    Manager.RefreshCommandFiles(Root, False);
+    Check((IDE.Reloads = Before + 1) and (UnitEditor.Text = 'overlap-outer'),
+      'Outer stacked command refresh lost its snapshot');
+    Check(IDE.CheckFilesOnDiskEnabled, 'Stacked command refresh did not restore disk check');
     Before := IDE.Reloads; Project.Root := Root + '/other'; ForceDirectories(Project.Root);
     Refresh(UnitEditor.Path); Check(IDE.Reloads = Before, 'Reload crossed project switch'); Project.Root := Root;
     DeleteFile(UnitEditor.Path); Check(Refresh(UnitEditor.Path) = '', 'Deleted source not handled');

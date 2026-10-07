@@ -41,7 +41,8 @@ jobs:
           xattr -cr "$RUNNER_TEMP/lazarus.zip"
           unzip -q "$RUNNER_TEMP/lazarus.zip" -d "$dist"
 
-          curl --fail --location --retry 3 "https://download.lazarus-ide.org/Lazarus%20macOS%20aarch64/Lazarus%20${version}/fpc-3.2.2.intelarm64-macosx.dmg" -o "$RUNNER_TEMP/fpc.dmg"
+          # FPC DMG lives beside the Lazarus zip for each macOS architecture folder.
+          curl --fail --location --retry 3 "$base/fpc-3.2.2.intelarm64-macosx.dmg" -o "$RUNNER_TEMP/fpc.dmg"
           hdiutil attach "$RUNNER_TEMP/fpc.dmg" -nobrowse -quiet -mountpoint "$RUNNER_TEMP/fpc-dmg"
           fpc_pkg="$(find "$RUNNER_TEMP/fpc-dmg" -maxdepth 3 -name 'fpc-*.pkg' -print -quit)"
           if [ -z "$fpc_pkg" ]; then

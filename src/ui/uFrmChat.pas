@@ -287,6 +287,7 @@ begin
       end;
       begin
         Session.SetSharedSettingsEnabled(not AnyRunning);
+        Session.SetSharedRunBlocked(AnyRunning and not Session.IsRunning);
         Session.SynchronizeSharedModel;
       end;
     end;
