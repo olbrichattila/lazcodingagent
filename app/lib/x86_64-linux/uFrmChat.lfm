@@ -8,6 +8,7 @@ object FrmChat: TFrmChat
   ClientWidth = 700
   OnCreate = FormCreate
   OnDestroy = FormDestroy
+  OnActivate = FormActivate
   Position = poScreenCenter
   LCLVersion = '2.2.0.0'
 end

@@ -20,6 +20,10 @@ if [ -z "${LAZARUS_DIR}" ]; then
                 break
             fi
         done
+    elif [ -d "/usr/share/lazarus" ]; then
+        LAZARUS_DIR="$(find /usr/share/lazarus -mindepth 1 -maxdepth 1 -type d 2>/dev/null \
+            | while read -r d; do [ -f "${d}/lazbuild" ] && echo "${d}"; done \
+            | sort -V | tail -n 1)"
     elif [ -d "/usr/lib/lazarus/4.4" ]; then
         LAZARUS_DIR="/usr/lib/lazarus/4.4"
     elif [ -d "/usr/lib/lazarus/default" ]; then
@@ -49,6 +53,27 @@ if [ -n "${LAZARUS_DIR}" ]; then
 fi
 if [ -n "${LCL_WS}" ]; then
     LAZBUILD_FLAGS+=( "--ws=${LCL_WS}" )
+fi
+
+# Widgetset for rebuilding the IDE (install). Qt5 rebuilds try to write under a
+# read-only /usr/share/lazarus tree on distro packages; gtk2 matches those builds.
+LCL_IDE_WS="${LCL_IDE_WS:-}"
+if [ -z "${LCL_IDE_WS}" ]; then
+    if [ "$(uname -s)" = "Linux" ] && [ -n "${LAZARUS_DIR}" ] \
+        && [[ "${LAZARUS_DIR}" == /usr/share/lazarus/* ]] \
+        && [ ! -w "${LAZARUS_DIR}" ]; then
+        LCL_IDE_WS="gtk2"
+    else
+        LCL_IDE_WS="${LCL_WS}"
+    fi
+fi
+
+LAZBUILD_IDE_FLAGS=()
+if [ -n "${LAZARUS_DIR}" ]; then
+    LAZBUILD_IDE_FLAGS+=( "--lazarusdir=${LAZARUS_DIR}" )
+fi
+if [ -n "${LCL_IDE_WS}" ]; then
+    LAZBUILD_IDE_FLAGS+=( "--ws=${LCL_IDE_WS}" )
 fi
 
 # Check for required tools
@@ -101,9 +126,16 @@ build_package() {
 install_package() {
     echo "==> Registering package and rebuilding Lazarus IDE..."
     if [ -f "${PKG_DIR}/lazaruscodingagent.lpk" ]; then
-        lazbuild "${LAZBUILD_FLAGS[@]}" --add-package "${PKG_DIR}/lazaruscodingagent.lpk"
-        lazbuild "${LAZBUILD_FLAGS[@]}" --build-ide=
+        if [ "${LCL_IDE_WS}" != "${LCL_WS}" ]; then
+            echo "==> IDE rebuild uses LCL widgetset '${LCL_IDE_WS}' (app builds use '${LCL_WS}')."
+            echo "    Override with LCL_IDE_WS=qt5 only if your Lazarus source tree is writable."
+        fi
+        lazbuild "${LAZBUILD_IDE_FLAGS[@]}" --add-package "${PKG_DIR}/lazaruscodingagent.lpk"
+        lazbuild "${LAZBUILD_IDE_FLAGS[@]}" --build-ide=
         echo "==> Package registered and Lazarus IDE rebuilt successfully."
+        if [ -x "${HOME}/.lazarus/bin/lazarus" ]; then
+            echo "==> Start the rebuilt IDE: ${HOME}/.lazarus/bin/lazarus"
+        fi
     else
         echo "Error: ${PKG_DIR}/lazaruscodingagent.lpk not found."
         exit 1

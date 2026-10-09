@@ -121,6 +121,7 @@ object FrmChatSession: TFrmChatSession
       Width = 590
       Anchors = [akTop, akLeft, akRight, akBottom]
       OnChange = MemInputChange
+      OnEnter = MemInputEnter
       OnKeyDown = MemInputKeyDown
       ScrollBars = ssAutoVertical
       TabOrder = 0
